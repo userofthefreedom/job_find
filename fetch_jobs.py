@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 
 from bs4 import BeautifulSoup
 import requests
+import config
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -185,6 +186,46 @@ def fetch_all() -> list[dict]:
     return deduplicate_cross_platform(fetch_saramin_all(), fetch_wanted_all())
 
 
+# ── Filters ──────────────────────────────────────────────────────────────────
+
+def filter_keywords(job: dict) -> bool:
+    if not config.KEYWORDS:
+        return True
+    text = f"{job['title']} {job['keyword']}".lower()
+    return any(kw.lower() in text for kw in config.KEYWORDS)
+
+
+def filter_location(job: dict) -> bool:
+    if not config.LOCATIONS:
+        return True
+    return any(loc in job["location"] for loc in config.LOCATIONS)
+
+
+def filter_career_type(job: dict) -> bool:
+    if config.CAREER_TYPE is None:
+        return True
+    return config.CAREER_TYPE in job["experience"]
+
+
+def filter_exp_range(job: dict) -> bool:
+    if config.EXP_MIN is None and config.EXP_MAX is None:
+        return True
+    nums = [int(n) for n in re.findall(r"\d+", job["experience"])]
+    if not nums:
+        return True  # 추출 불가(경력무관·신입 등) → 관대하게 통과
+    lo = config.EXP_MIN if config.EXP_MIN is not None else 0
+    hi = config.EXP_MAX if config.EXP_MAX is not None else 99
+    return min(nums) <= hi and max(nums) >= lo
+
+
+def filter_jobs(jobs: list[dict]) -> list[dict]:
+    return [
+        j for j in jobs
+        if filter_keywords(j) and filter_location(j)
+        and filter_career_type(j) and filter_exp_range(j)
+    ]
+
+
 # ── Storage ───────────────────────────────────────────────────────────────────
 
 def format_block(job: dict) -> str:
@@ -228,18 +269,19 @@ def write_jobs(jobs: list[dict], path: str) -> None:
             f.write(format_block(job))
 
 
-def print_summary(total: int, new: int) -> None:
+def print_summary(total: int, filtered: int, new: int) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    print(f"[{now}] 조회: {total}건 | 신규 저장: {new}건")
+    print(f"[{now}] 조회: {total}건 | 필터 통과: {filtered}건 | 신규 저장: {new}건")
 
 
 def main() -> None:
     ensure_output_dir()
     skip_ids = load_active_ids(JOBS_PATH) | load_dismissed_ids(DISMISSED_PATH)
     jobs = fetch_all()
-    new_jobs = [j for j in jobs if j["id"] not in skip_ids]
+    filtered = filter_jobs(jobs)
+    new_jobs = [j for j in filtered if j["id"] not in skip_ids]
     write_jobs(new_jobs, JOBS_PATH)
-    print_summary(len(jobs), len(new_jobs))
+    print_summary(len(jobs), len(filtered), len(new_jobs))
 
 
 if __name__ == "__main__":

@@ -76,6 +76,33 @@
 
 ---
 
+## Phase 3 — 필터링 ✅ (2026-07-09 완료)
+
+### 구현 내용 (`fetch_jobs.py`에 필터 섹션 추가)
+
+| 함수 | 역할 |
+|---|---|
+| `filter_keywords(job)` | `KEYWORDS` 중 하나라도 title/keyword에 포함 → 통과 (대소문자 무시) |
+| `filter_location(job)` | `LOCATIONS` 중 하나라도 location에 포함 → 통과 |
+| `filter_career_type(job)` | `CAREER_TYPE`이 experience에 포함 → 통과 (None이면 전체 허용) |
+| `filter_exp_range(job)` | experience에서 숫자 추출 후 `[EXP_MIN, EXP_MAX]`와 범위 겹침 비교. 추출 불가 → 통과 |
+| `filter_jobs(jobs)` | 위 4개 AND 조건 적용 |
+
+- `print_summary` 시그니처 변경: `(total, filtered, new)` → 콘솔 출력 `조회 N건 | 필터 통과 M건 | 신규 저장 K건`
+- `main()` 에 `filter_jobs()` 삽입
+
+### 단위 테스트 결과 (`pytest tests/ -v`)
+
+**39/39 통과** ✅ (Phase 2 22개 + Phase 3 17개)
+
+- `filter_keywords` — 제목 일치 / keyword 필드 일치 / 불일치 / 빈 리스트 / 대소문자 무시 ✅
+- `filter_location` — 일치 / 불일치 / 빈 리스트 ✅
+- `filter_career_type` — None 전체허용 / 일치 / 불일치 ✅
+- `filter_exp_range` — 둘 다 None / 숫자 없음(경력무관) / 범위 겹침 / 범위 미겹침 / 단일 숫자 ✅
+- `filter_jobs` — AND 조건 복합 테스트 ✅
+
+---
+
 ## 현재 Git 상태 (2026-06-30 세션 종료 시점)
 
 | 항목 | 내용 |
@@ -89,6 +116,6 @@
 
 ## 다음 세션 주의사항
 
-1. **Phase 3는 필터링** — `config.py` 조건 4개(키워드·지역·경력유형·경력연차)를 AND로 묶는 `filter_jobs()` 추가. `fetch_jobs.py`만 수정.
-2. **venv 그대로 사용** — `beautifulsoup4==4.12.3`, `pytest` 이미 설치 완료. `.\venv\Scripts\Activate.ps1` 활성화 후 바로 실행 가능.
+1. **Phase 4는 X 마커 처리** — `jobs_all.txt`에서 `[X]` 블록을 제거하고 ID를 `dismissed_ids.txt`에 영구 기록.
+2. **venv 그대로 사용** — `beautifulsoup4==4.12.3`, `pytest` 이미 설치 완료.
 3. **API 키 불필요** — 사람인 스크래핑 + 원티드 비공식 API 모두 인증 없이 동작.
