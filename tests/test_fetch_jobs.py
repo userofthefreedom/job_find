@@ -8,20 +8,26 @@ from bs4 import BeautifulSoup
 
 import config
 from fetch_jobs import (
+    DIVIDER,
     _norm_title,
     _wanted_experience,
+    append_dismissed_ids,
     deduplicate_cross_platform,
+    extract_id,
     filter_career_type,
     filter_exp_range,
     filter_jobs,
     filter_keywords,
     filter_location,
     format_block,
+    is_dismissed,
     load_active_ids,
     load_dismissed_ids,
     normalize_saramin,
     normalize_wanted,
+    parse_blocks,
     parse_saramin_date,
+    process_x_markers,
 )
 
 # ── parse_saramin_date ────────────────────────────────────────────────────────
@@ -320,6 +326,102 @@ def test_filter_exp_range_single_number(monkeypatch):
     monkeypatch.setattr(config, "EXP_MIN", 1)
     monkeypatch.setattr(config, "EXP_MAX", 5)
     assert filter_exp_range(_job_stub(experience="신입~3년"))
+
+
+# ── filter_jobs ───────────────────────────────────────────────────────────────
+
+# ── parse_blocks ──────────────────────────────────────────────────────────────
+
+def _make_block(job_id: str, x_marker: bool = False) -> str:
+    lines = [DIVIDER, f"[수집일] 2026-07-09"]
+    if x_marker:
+        lines.append("[X]")
+    lines += [f"[제목]   테스트 공고", f"[ID]     {job_id}", DIVIDER]
+    return "\n".join(lines) + "\n"
+
+def test_parse_blocks_single():
+    text = _make_block("saramin_1")
+    blocks = parse_blocks(text)
+    assert len(blocks) == 1
+    assert "saramin_1" in blocks[0]
+
+def test_parse_blocks_multiple():
+    text = _make_block("saramin_1") + _make_block("wanted_2")
+    blocks = parse_blocks(text)
+    assert len(blocks) == 2
+
+def test_parse_blocks_empty():
+    assert parse_blocks("") == []
+
+
+# ── is_dismissed ──────────────────────────────────────────────────────────────
+
+def test_is_dismissed_upper():
+    assert is_dismissed(_make_block("saramin_1", x_marker=True))
+
+def test_is_dismissed_lower():
+    block = _make_block("saramin_1").replace(DIVIDER + "\n[수집일]", DIVIDER + "\n[x]\n[수집일]")
+    assert is_dismissed(block)
+
+def test_is_dismissed_no_marker():
+    assert not is_dismissed(_make_block("saramin_1"))
+
+
+# ── extract_id ────────────────────────────────────────────────────────────────
+
+def test_extract_id_found():
+    assert extract_id(_make_block("saramin_99")) == "saramin_99"
+
+def test_extract_id_not_found():
+    block = DIVIDER + "\n[제목] 뭔가\n" + DIVIDER
+    assert extract_id(block) is None
+
+
+# ── process_x_markers ─────────────────────────────────────────────────────────
+
+def test_process_x_markers_removes_block_and_records_id():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        dismissed_path = os.path.join(tmpdir, "dismissed_ids.txt")
+
+        normal = _make_block("saramin_1")
+        marked = _make_block("wanted_2", x_marker=True)
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(normal + marked)
+
+        count = process_x_markers(jobs_path, dismissed_path)
+
+        assert count == 1
+        remaining = open(jobs_path, encoding="utf-8").read()
+        assert "saramin_1" in remaining
+        assert "wanted_2" not in remaining
+        dismissed = open(dismissed_path, encoding="utf-8").read()
+        assert "wanted_2" in dismissed
+
+def test_process_x_markers_no_file_returns_zero():
+    assert process_x_markers("nonexistent.txt", "nonexistent2.txt") == 0
+
+def test_process_x_markers_no_marker_does_nothing():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        dismissed_path = os.path.join(tmpdir, "dismissed_ids.txt")
+        content = _make_block("saramin_1") + _make_block("wanted_2")
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        count = process_x_markers(jobs_path, dismissed_path)
+        assert count == 0
+        assert not os.path.exists(dismissed_path)
+        assert open(jobs_path, encoding="utf-8").read() == content
+
+def test_process_x_markers_block_without_id_preserved():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        dismissed_path = os.path.join(tmpdir, "dismissed_ids.txt")
+        no_id_block = DIVIDER + "\n[X]\n[제목] 손상된 블록\n" + DIVIDER + "\n"
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(no_id_block)
+        count = process_x_markers(jobs_path, dismissed_path)
+        assert count == 0  # [ID] 없으므로 제거하지 않음
 
 
 # ── filter_jobs ───────────────────────────────────────────────────────────────

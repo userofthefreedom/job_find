@@ -103,19 +103,45 @@
 
 ---
 
-## 현재 Git 상태 (2026-06-30 세션 종료 시점)
+## Phase 4 — X 마커 처리 ✅ (2026-07-09 완료)
+
+### 구현 내용 (`fetch_jobs.py`에 X 마커 섹션 추가)
+
+| 함수 | 역할 |
+|---|---|
+| `parse_blocks(text)` | 전체 텍스트를 `═×48` 경계 기준 블록 리스트로 파싱 |
+| `is_dismissed(block)` | 블록 내 `[X]` 줄 존재 여부 확인 (대소문자 무시) |
+| `extract_id(block)` | `[ID]` 줄에서 ID 문자열 추출, 없으면 `None` 반환 |
+| `append_dismissed_ids(ids, path)` | 추출한 ID → `dismissed_ids.txt` append |
+| `rewrite_jobs_file(blocks, path)` | 남은 블록으로 `jobs_all.txt` 덮어쓰기 |
+| `process_x_markers(jobs_path, dismissed_path)` | 위 함수들 통합 실행, 제거 건수 반환 |
+
+- `main()` 최초 단계에 `process_x_markers()` 삽입
+- `print_summary` 시그니처 변경: `(total, x_removed, filtered, new)` → `X 처리: N건` 포함 출력
+- `[X]` 있어도 `[ID]` 없는 블록은 보존 (안전장치)
+
+### 단위 테스트 결과 (`pytest tests/ -v`)
+
+**51/51 통과** ✅ (Phase 2 22개 + Phase 3 17개 + Phase 4 12개)
+
+- `parse_blocks` — 정상 블록 분리 / 블록 2개 / 빈 파일 / 짝 안 맞는 구분자 무시 ✅
+- `is_dismissed` — `[X]` 포함 / 미포함 / `[x]` 소문자 ✅
+- `extract_id` — ID 있음 / 없음 ✅
+- `process_x_markers` — 파일 없음 / X 블록 제거+dismissed 기록 / `[X]` 있지만 `[ID]` 없는 블록 보존 / 정상 블록 보존 ✅
+
+---
+
+## 현재 Git 상태
 
 | 항목 | 내용 |
 |---|---|
 | 브랜치 | `master` |
-| 워킹 트리 | 클린 (미커밋 변경 없음) |
-| 마지막 커밋 | `37eaf5e` — `26.06.30 phase 2 start` (fetch_jobs.py Phase 2 구현) |
-| 그 전 커밋 | `e393d7c` — `26.06.30 Phase 1 - 프로젝트 뼈대 구성&review` |
+| 전체 구현 | Phase 1~4 완료 |
+| 마지막 커밋 예정 | Phase 4 X 마커 처리 (`fetch_jobs.py`, 테스트, PROGRESS.md) |
 
 ---
 
-## 다음 세션 주의사항
+## 운용 참고
 
-1. **Phase 4는 X 마커 처리** — `jobs_all.txt`에서 `[X]` 블록을 제거하고 ID를 `dismissed_ids.txt`에 영구 기록.
-2. **venv 그대로 사용** — `beautifulsoup4==4.12.3`, `pytest` 이미 설치 완료.
-3. **API 키 불필요** — 사람인 스크래핑 + 원티드 비공식 API 모두 인증 없이 동작.
+- 전체 Phase 1~4 구현 완료. Windows 작업 스케줄러 등록 후 운용 가능.
+- `config.py` 조건 수정 후 재실행하면 바뀐 조건 즉시 반영.

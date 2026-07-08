@@ -269,19 +269,82 @@ def write_jobs(jobs: list[dict], path: str) -> None:
             f.write(format_block(job))
 
 
-def print_summary(total: int, filtered: int, new: int) -> None:
+# ── X 마커 처리 ──────────────────────────────────────────────────────────────
+
+def parse_blocks(text: str) -> list[str]:
+    lines = text.splitlines(keepends=True)
+    blocks: list[str] = []
+    start: int | None = None
+    for i, line in enumerate(lines):
+        if line.rstrip() == DIVIDER:
+            if start is None:
+                start = i
+            else:
+                blocks.append("".join(lines[start:i + 1]))
+                start = None
+    return blocks
+
+
+def is_dismissed(block: str) -> bool:
+    return any(ln.strip().upper() == "[X]" for ln in block.splitlines())
+
+
+def extract_id(block: str) -> str | None:
+    for ln in block.splitlines():
+        if ln.startswith("[ID]"):
+            parts = ln.split(None, 1)
+            return parts[1].strip() if len(parts) > 1 else None
+    return None
+
+
+def append_dismissed_ids(ids: list[str], path: str) -> None:
+    with open(path, "a", encoding="utf-8") as f:
+        for id_ in ids:
+            f.write(id_ + "\n")
+
+
+def rewrite_jobs_file(blocks: list[str], path: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        for block in blocks:
+            f.write(block)
+
+
+def process_x_markers(jobs_path: str, dismissed_path: str) -> int:
+    if not os.path.exists(jobs_path):
+        return 0
+    with open(jobs_path, encoding="utf-8") as f:
+        text = f.read()
+    blocks = parse_blocks(text)
+    keep: list[str] = []
+    removed_ids: list[str] = []
+    for block in blocks:
+        if is_dismissed(block):
+            id_ = extract_id(block)
+            if id_:
+                removed_ids.append(id_)
+        else:
+            keep.append(block)
+    if removed_ids:
+        append_dismissed_ids(removed_ids, dismissed_path)
+        rewrite_jobs_file(keep, jobs_path)
+        print(f"[X] 처리: {len(removed_ids)}건 제거됨")
+    return len(removed_ids)
+
+
+def print_summary(total: int, x_removed: int, filtered: int, new: int) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    print(f"[{now}] 조회: {total}건 | 필터 통과: {filtered}건 | 신규 저장: {new}건")
+    print(f"[{now}] 조회: {total}건 | X 처리: {x_removed}건 | 필터 통과: {filtered}건 | 신규 저장: {new}건")
 
 
 def main() -> None:
     ensure_output_dir()
+    x_count = process_x_markers(JOBS_PATH, DISMISSED_PATH)
     skip_ids = load_active_ids(JOBS_PATH) | load_dismissed_ids(DISMISSED_PATH)
     jobs = fetch_all()
     filtered = filter_jobs(jobs)
     new_jobs = [j for j in filtered if j["id"] not in skip_ids]
     write_jobs(new_jobs, JOBS_PATH)
-    print_summary(len(jobs), len(filtered), len(new_jobs))
+    print_summary(len(jobs), x_count, len(filtered), len(new_jobs))
 
 
 if __name__ == "__main__":
