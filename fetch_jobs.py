@@ -1,162 +1,245 @@
 from __future__ import annotations
 import os
+import re
 import sys
 from datetime import datetime
+from difflib import SequenceMatcher
 
-# Windows 콘솔/Task Scheduler 환경에서 UTF-8 출력 보장
+from bs4 import BeautifulSoup
+import requests
+
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
-import requests
-from dotenv import load_dotenv
-
 JOBS_PATH = "output/jobs_all.txt"
 DISMISSED_PATH = "output/dismissed_ids.txt"
-API_URL = "https://oapi.saramin.co.kr/job-search"
+SARAMIN_URL = "https://www.saramin.co.kr/zf_user/search/recruit"
+WANTED_URL = "https://www.wanted.co.kr/api/v4/jobs"
 DIVIDER = "═" * 48
-
-
-def load_config() -> str:
-    load_dotenv()
-    key = os.getenv("SARAMIN_ACCESS_KEY")
-    if not key:
-        sys.exit("오류: .env 파일에 SARAMIN_ACCESS_KEY가 없습니다.")
-    return key
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
 def ensure_output_dir() -> None:
     os.makedirs("output", exist_ok=True)
 
 
-def fetch_page(api_key: str, start: int) -> dict:
-    params = {
-        "access-key": api_key,
-        "published": 1,
-        "count": 110,
-        "start": start,
-        "sort": "RL",
-    }
-    headers = {"Accept": "application/json"}
+# ── Saramin ───────────────────────────────────────────────────────────────────
+
+def fetch_saramin_page(page: int) -> bytes | None:
     for attempt in range(2):
         try:
-            resp = requests.get(API_URL, params=params, headers=headers, timeout=10)
+            resp = requests.get(
+                SARAMIN_URL,
+                params={"days": 1, "recruitPageCount": 40, "recruitPage": page, "sort": "RL"},
+                headers={"User-Agent": _UA, "Accept-Language": "ko-KR,ko;q=0.9"},
+                timeout=15,
+            )
             resp.raise_for_status()
-            return resp.json()
-        except requests.HTTPError as e:
-            sys.exit(f"API 오류 {e.response.status_code}: {e}")
+            return resp.content
         except requests.RequestException as e:
             if attempt == 1:
-                sys.exit(f"네트워크 오류 (재시도 실패): {e}")
-    return {}
+                print(f"[사람인] {page}페이지 오류: {e}")
+    return None
 
 
-def fetch_all(api_key: str) -> list[dict]:
+def parse_saramin_date(text: str) -> str:
+    m = re.search(r"(\d{2})/(\d{2})", text)
+    if not m:
+        return ""
+    return f"{datetime.now().year}-{m.group(1)}-{m.group(2)}"
+
+
+def normalize_saramin(item) -> dict | None:
+    try:
+        rec_idx = item.get("value", "").strip()
+        a = item.select_one("h2.job_tit a")
+        title = (a.get("title") or a.get_text(strip=True)) if a else ""
+        corp = item.select_one("strong.corp_name")
+        company = corp.get_text(strip=True) if corp else ""
+        spans = item.select("div.job_condition span")
+        location = spans[0].get_text(" ", strip=True) if spans else ""
+        experience = spans[1].get_text(strip=True) if len(spans) > 1 else ""
+        job_type = spans[3].get_text(strip=True) if len(spans) > 3 else ""
+        keyword = ", ".join(a.get_text(strip=True) for a in item.select("div.job_sector a"))
+        date_el = item.select_one("div.job_date span.date")
+        deadline = parse_saramin_date(date_el.get_text(strip=True)) if date_el else ""
+        if not rec_idx or not title:
+            return None
+        return {
+            "id": f"saramin_{rec_idx}",
+            "source": "사람인",
+            "company": company,
+            "title": title,
+            "location": location,
+            "job_type": job_type,
+            "experience": experience,
+            "keyword": keyword,
+            "url": f"https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx={rec_idx}",
+            "deadline": deadline,
+        }
+    except (AttributeError, IndexError, KeyError):
+        return None
+
+
+def fetch_saramin_all() -> list[dict]:
     jobs: list[dict] = []
-    start = 0
-    while True:
-        data = fetch_page(api_key, start)
-        page_jobs = data.get("jobs", {}).get("job", [])
-        if not page_jobs:
+    for page in range(1, 11):
+        content = fetch_saramin_page(page)
+        if not content:
             break
-        jobs.extend(page_jobs)
-        total = int(data["jobs"].get("total", 0))
-        if start + 110 >= total:
+        items = BeautifulSoup(content, "html.parser").select("div.item_recruit")
+        if not items:
             break
-        start += 110
+        for item in items:
+            job = normalize_saramin(item)
+            if job:
+                jobs.append(job)
+        if len(items) < 40:
+            break
     return jobs
 
 
-def ts_to_date(ts: str) -> str:
+# ── Wanted ────────────────────────────────────────────────────────────────────
+
+def fetch_wanted_page(offset: int) -> list | None:
+    for attempt in range(2):
+        try:
+            resp = requests.get(
+                WANTED_URL,
+                params={"job_sort": "job.latest_order", "limit": 20, "offset": offset, "country": "kr"},
+                headers={"User-Agent": _UA, "Accept": "application/json", "Referer": "https://www.wanted.co.kr/"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            return resp.json().get("data", [])
+        except (requests.RequestException, ValueError) as e:
+            if attempt == 1:
+                print(f"[원티드] offset={offset} 오류: {e}")
+    return None
+
+
+def _wanted_experience(annual_from: int, annual_to: int) -> str:
+    if annual_from == 0 and annual_to == 0:
+        return "경력무관"
+    if annual_from == 0:
+        return f"신입~{annual_to}년"
+    return f"경력 {annual_from}~{annual_to}년"
+
+
+def normalize_wanted(item: dict) -> dict | None:
     try:
-        return datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d")
-    except (ValueError, TypeError, OSError):
-        return ""
+        job_id = item["id"]
+        return {
+            "id": f"wanted_{job_id}",
+            "source": "원티드",
+            "company": item["company"]["name"],
+            "title": item["position"],
+            "location": item["address"]["location"],
+            "job_type": "",
+            "experience": _wanted_experience(item.get("annual_from", 0), item.get("annual_to", 0)),
+            "keyword": "",
+            "url": f"https://www.wanted.co.kr/wd/{job_id}",
+            "deadline": item.get("due_time") or "",
+        }
+    except (KeyError, TypeError):
+        return None
 
 
-def normalize(job: dict) -> dict:
-    exp = job.get("position", {}).get("experience-level", {})
-    return {
-        "id":         job["id"],
-        "company":    job["company"]["detail"]["name"],
-        "title":      job["position"]["title"],
-        "location":   job["position"]["location"]["name"],
-        "job_type":   job["position"]["job-type"]["name"],
-        "experience": exp.get("name", ""),
-        "keyword":    job.get("keyword", ""),
-        "url":        job["url"],
-        "deadline":   ts_to_date(job.get("expiration-timestamp", "")),
-    }
+def fetch_wanted_all() -> list[dict]:
+    jobs: list[dict] = []
+    offset = 0
+    while offset < 100:
+        page = fetch_wanted_page(offset)
+        if not page:
+            break
+        for item in page:
+            job = normalize_wanted(item)
+            if job:
+                jobs.append(job)
+        if len(page) < 20:
+            break
+        offset += len(page)
+    return jobs
 
+
+# ── Cross-platform dedup ──────────────────────────────────────────────────────
+
+def _norm_title(title: str) -> str:
+    return re.sub(r"\s+", "", title).lower()
+
+
+def deduplicate_cross_platform(saramin: list[dict], wanted: list[dict]) -> list[dict]:
+    result = list(saramin)
+    for w in wanted:
+        is_dup = any(
+            SequenceMatcher(None, _norm_title(s["title"]), _norm_title(w["title"])).ratio() >= 0.85
+            and (s["deadline"] == w["deadline"] or s["location"] == w["location"])
+            for s in saramin
+        )
+        if not is_dup:
+            result.append(w)
+    return result
+
+
+def fetch_all() -> list[dict]:
+    return deduplicate_cross_platform(fetch_saramin_all(), fetch_wanted_all())
+
+
+# ── Storage ───────────────────────────────────────────────────────────────────
 
 def format_block(job: dict) -> str:
     today = datetime.now().strftime("%Y-%m-%d")
-    cond_parts = [p for p in [job["location"], job["job_type"], job["experience"]] if p]
+    cond = " | ".join(p for p in [job["location"], job["job_type"], job["experience"]] if p)
     lines = [
         DIVIDER,
         f"[수집일] {today}",
+        f"[출처]   {job['source']}",
         f"[회사]   {job['company']}",
         f"[제목]   {job['title']}",
-        f"[조건]   {' | '.join(cond_parts)}",
     ]
+    if cond:
+        lines.append(f"[조건]   {cond}")
     if job["keyword"]:
         lines.append(f"[직무]   {job['keyword']}")
     lines.append(f"[링크]   {job['url']}")
     if job["deadline"]:
         lines.append(f"[마감]   {job['deadline']}")
-    lines.append(f"[ID]     {job['id']}")
-    lines.append(DIVIDER)
+    lines += [f"[ID]     {job['id']}", DIVIDER]
     return "\n".join(lines) + "\n"
 
 
-def load_active_ids(jobs_path: str) -> set[str]:
-    if not os.path.exists(jobs_path):
+def load_active_ids(path: str) -> set[str]:
+    if not os.path.exists(path):
         return set()
-    ids: set[str] = set()
-    with open(jobs_path, encoding="utf-8") as f:
-        for line in f:
-            if line.startswith("[ID]"):
-                ids.add(line.split(None, 1)[1].strip())
-    return ids
+    with open(path, encoding="utf-8") as f:
+        return {ln.split(None, 1)[1].strip() for ln in f if ln.startswith("[ID]")}
 
 
 def load_dismissed_ids(path: str) -> set[str]:
     if not os.path.exists(path):
         return set()
     with open(path, encoding="utf-8") as f:
-        return {line.strip() for line in f if line.strip()}
+        return {ln.strip() for ln in f if ln.strip()}
 
 
-def write_jobs(jobs: list[dict], jobs_path: str) -> None:
-    with open(jobs_path, "a", encoding="utf-8") as f:
+def write_jobs(jobs: list[dict], path: str) -> None:
+    with open(path, "a", encoding="utf-8") as f:
         for job in jobs:
             f.write(format_block(job))
 
 
 def print_summary(total: int, new: int) -> None:
-    print(f"조회: {total}건 | 신규 저장: {new}건")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"[{now}] 조회: {total}건 | 신규 저장: {new}건")
 
 
 def main() -> None:
-    api_key = load_config()
     ensure_output_dir()
-
-    active = load_active_ids(JOBS_PATH)
-    dismissed = load_dismissed_ids(DISMISSED_PATH)
-    skip_ids = active | dismissed
-
-    raw_jobs = fetch_all(api_key)
-    total = len(raw_jobs)
-
-    normalized: list[dict] = []
-    for job in raw_jobs:
-        try:
-            normalized.append(normalize(job))
-        except (KeyError, TypeError) as e:
-            print(f"경고: 공고 파싱 실패 ({e}), 건너뜀")
-
-    new_jobs = [j for j in normalized if j["id"] not in skip_ids]
+    skip_ids = load_active_ids(JOBS_PATH) | load_dismissed_ids(DISMISSED_PATH)
+    jobs = fetch_all()
+    new_jobs = [j for j in jobs if j["id"] not in skip_ids]
     write_jobs(new_jobs, JOBS_PATH)
-    print_summary(total, len(new_jobs))
+    print_summary(len(jobs), len(new_jobs))
 
 
 if __name__ == "__main__":

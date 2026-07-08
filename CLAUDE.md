@@ -2,23 +2,25 @@
 
 ## Project Overview
 
-사람인 Open API를 사용해 매일 채용 공고를 가져오고,
+사람인 공개 검색 페이지 스크래핑과 원티드 비공식 API를 사용해 매일 채용 공고를 가져오고,
 사용자가 정의한 조건(직무·지역·경력 등)에 맞는 공고만 필터링해
 로컬 txt 파일에 기록하는 Windows 로컬 자동화 스크립트.
 
 - Windows 작업 스케줄러로 매일 점심 무렵 자동 실행
-- 공식 API 사용(무단 크롤링 없음), 하루 500회 호출 한도 내에서 동작
+- 두 플랫폼(사람인·원티드)에서 공고 수집, 결과를 단일 파일에 통합
 - 신규 공고만 추가(append) 방식으로 누적 기록
 
 ## Tech Stack
 
 - **Language**: Python 3.11+
-- **Job data source**: 사람인 Open API (`https://oapi.saramin.co.kr/job-search`)
+- **Job data source**:
+  - 사람인 공개 검색 페이지 스크래핑 (`https://www.saramin.co.kr/zf_user/search/recruit`)
+    - HTML 파싱: `beautifulsoup4`
+  - 원티드 비공식 API (`https://www.wanted.co.kr/api/v4/jobs`)
   - HTTP 통신: `requests`
-  - 인증: API access-key (`.env`에서 로드)
-- **Config / secrets**: `python-dotenv` (`.env` 파일)
+- **Config / secrets**: `python-dotenv` (사람인 공식 API 승인 시 키 로드용으로 유지)
 - **Runtime**: Windows 로컬, Windows 작업 스케줄러(Task Scheduler)
-- **Output**: UTF-8 txt 파일 (날짜별 또는 단일 누적 파일)
+- **Output**: UTF-8 txt 파일 (단일 누적 파일 `output/jobs_all.txt`)
 
 ## Project Structure
 
@@ -27,11 +29,11 @@
 ├── fetch_jobs.py        # 메인 실행 스크립트
 ├── config.py            # 필터 조건 정의 (직무·지역·경력 등)
 ├── requirements.txt
-├── .env                 # API 키 (Git 제외)
+├── .env                 # API 키 (Git 제외, 현재 선택 사항)
 ├── .env.example         # 키 템플릿 (Git 포함)
 ├── .gitignore
 ├── output/              # txt 결과 파일 저장 폴더
-│   └── jobs_YYYYMMDD.txt
+│   └── jobs_all.txt
 └── docs/
     ├── PRD.md
     ├── SPEC.md
@@ -73,15 +75,15 @@ python -m pytest tests/ -v
 
 작업 스케줄러 → 새 작업 → 트리거: 매일 12:00 → 동작:
 
-- 프로그램: `C:\Users\mypc\Desktop\test\venv\Scripts\python.exe`
+- 프로그램: `C:\Users\mypc\Desktop\new\venv\Scripts\python.exe`
 - 인수: `fetch_jobs.py`
-- 시작 위치: `C:\Users\mypc\Desktop\test`
+- 시작 위치: `C:\Users\mypc\Desktop\new`
 
 ## Code Style
 
 이 프로젝트는 단일 실행 스크립트 수준이므로 과도한 추상화를 피한다.
 
-- 함수 단위로 역할 분리 (API 호출 / 필터링 / 파일 저장)
+- 함수 단위로 역할 분리 (수집 / 필터링 / 파일 저장)
 - 클래스 사용 최소화 — 단순 함수와 모듈로 구성
 - 타입 힌트 사용 (함수 시그니처 수준)
 - 주석은 WHY가 명확하지 않을 때만 작성, 코드 설명성 주석 금지
@@ -96,8 +98,8 @@ python -m pytest tests/ -v
 - `.env.example`에는 실제 키 값 없이 변수 이름과 형식만 기재한다.
 
 ```
-# .env.example
-SARAMIN_ACCESS_KEY=your_access_key_here
+# .env.example — 현재 필수 항목 없음
+# 사람인 공식 API 승인 시: SARAMIN_ACCESS_KEY=your_access_key_here
 ```
 
 ## Workflow Rules
@@ -108,9 +110,11 @@ SARAMIN_ACCESS_KEY=your_access_key_here
 4. **변경 기록**: 동작 방식·파라미터·파일 형식이 바뀌면 `docs/SPEC.md`를 해당 시점에 업데이트
 5. **Phase 완료 보고**: Phase 하나가 끝나면 무엇을 구현했는지 사용자에게 요약 보고 후 다음 지시 대기
 
-## API Limits & Constraints
+## Scraping & API Constraints
 
-- 사람인 API 무료 플랜: **하루 최대 500회** 호출
-- 단일 요청 최대 조회 건수: **110건** (`count=110`)
-- `published=1` 파라미터로 오늘 등록된 공고만 조회해 호출 횟수 절약
-- 호출 실패(4xx/5xx) 시 재시도는 **1회**만, 그 후 오류 로그 기록 후 종료
+- **사람인 스크래핑**: 공개 검색 페이지 HTML 파싱 (`days=1` 파라미터로 오늘 공고 필터)
+  - 페이지당 최대 40건, 페이지네이션으로 전체 수집
+  - HTTP 오류 시 **1회** 재시도, 실패 시 해당 소스 건너뛰고 원티드 결과만 사용
+- **원티드 비공식 API**: 인증 없이 JSON 응답 수신
+  - 페이지당 20건, offset 기반 페이지네이션
+  - HTTP 오류 시 **1회** 재시도, 실패 시 해당 소스 건너뛰고 사람인 결과만 사용

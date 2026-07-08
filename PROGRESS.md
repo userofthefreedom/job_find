@@ -1,6 +1,6 @@
 # PROGRESS
 
-## Phase 1 — 프로젝트 뼈대 구성 ✅ (2026-06-30 완료)
+## Phase 1 — 프로젝트 뼈대 구성 ✅ (2026-06-30 완료)다
 
 ### 구현 내용
 
@@ -21,7 +21,7 @@
 
 ---
 
-## Phase 2 — API 조회 및 파일 저장 🔄 (2026-06-30 구현 완료, API 검증 대기)
+## Phase 2 — 이중 소스 수집 및 파일 저장 ✅ (2026-07-09 완료)
 
 ### 구현 내용 (`fetch_jobs.py` 전면 재작성)
 
@@ -39,20 +39,40 @@
 | `write_jobs(jobs, path)` | `jobs_all.txt` append |
 | `print_summary(total, new)` | 조회/신규 저장 건수 출력 |
 
-### 단위 테스트 결과 (API 키 없이 실행)
+### 구현 함수 목록
 
-- `ts_to_date` — 정상값 / 빈값 / 잘못된값 처리 ✅
-- `normalize` — mock API 응답으로 필드 매핑 확인 ✅
-- `format_block` — DIVIDER 포함, `[ID]` 줄 위치, keyword 없을 때 `[직무]` 줄 생략 ✅
-- `load_active_ids` — 저장된 블록에서 ID 추출 ✅
-- 중복 방지 — 동일 job 2회 저장 시 skip_ids로 차단 ✅
-- 빈 keyword / 빈 deadline → 해당 줄 전체 생략 ✅
+| 함수 | 역할 |
+|---|---|
+| `ensure_output_dir()` | `output/` 없으면 자동 생성 |
+| `fetch_saramin_page(page)` | 사람인 검색 1페이지 HTML 요청, 1회 재시도 |
+| `parse_saramin_date(text)` | `"~ 08/06(목)"` → `"2026-08-06"` |
+| `normalize_saramin(item)` | BS4 Tag → 내부 dict (`id = "saramin_" + rec_idx`) |
+| `fetch_saramin_all()` | 페이지네이션 루프 (최대 10페이지) |
+| `fetch_wanted_page(offset)` | 원티드 API 1페이지 JSON 요청, 1회 재시도 |
+| `_wanted_experience(from, to)` | `annual_from/to` → 경력 텍스트 |
+| `normalize_wanted(item)` | API dict → 내부 dict (`id = "wanted_" + id`) |
+| `fetch_wanted_all()` | offset 루프 (최대 100건) |
+| `_norm_title(title)` | 공백 제거 + 소문자 (유사도 비교용) |
+| `deduplicate_cross_platform(s, w)` | 제목 유사도 ≥ 0.85 AND (마감일/지역 일치) → 중복 제거, 사람인 우선 |
+| `fetch_all()` | 두 소스 통합 수집 → cross dedup → 반환 |
+| `format_block(job)` | `[출처]`, `[ID]` 포함 txt 블록 |
+| `load_active_ids(path)` | `jobs_all.txt` 파싱 → 활성 ID set |
+| `load_dismissed_ids(path)` | `dismissed_ids.txt` 읽기 |
+| `write_jobs(jobs, path)` | `jobs_all.txt` append |
+| `print_summary(total, new)` | 타임스탬프 포함 요약 출력 |
 
-### 미완료 (다음 세션에서 시작)
+### 단위 테스트 결과 (`pytest tests/ -v`)
 
-- 실제 API 호출 후 `output/jobs_all.txt` 생성 확인
-- 같은 날 2회 실행 시 중복 없음 확인
-- Phase 2 Acceptance Criteria 최종 통과 후 커밋
+**22/22 통과** ✅
+
+- `parse_saramin_date` — 정상값 / 빈값 / 패턴 없음 ✅
+- `_wanted_experience` — 경력무관 / 신입 / 경력범위 ✅
+- `normalize_saramin` — mock HTML 파싱, value 누락 시 None ✅
+- `normalize_wanted` — 정상값 / null deadline / key 누락 시 None ✅
+- `format_block` — `[출처]`, `[ID]` prefix, 빈 keyword/deadline 줄 생략 ✅
+- `load_active_ids` — saramin_/wanted_ prefix ID 추출 ✅
+- `load_dismissed_ids` — 파일 읽기 ✅
+- `deduplicate_cross_platform` — 동일 제목+마감일 제거 / 다른 공고 유지 / 마감일+지역 모두 다를 때 유지 ✅
 
 ---
 
@@ -69,7 +89,6 @@
 
 ## 다음 세션 주의사항
 
-1. **API 키 먼저** — `.env` 파일 생성 후 `python fetch_jobs.py` 실행. `.env`는 `.gitignore`에 포함되어 있어 커밋되지 않음.
-2. **Phase 2 Verify Loop 완료** — API 실행 결과 확인 후 PLAN.md 완료 기준 충족 여부 판단. 통과해야 Phase 3 진행 가능.
-3. **venv 재생성 불필요** — `venv/`는 이미 로컬에 있음. `.\venv\Scripts\Activate.ps1` 또는 `.\venv\Scripts\python.exe`로 바로 실행.
-4. **Phase 3는 필터링** — `config.py` 조건 4개(키워드·지역·경력유형·경력연차)를 AND로 묶는 `filter_jobs()` 추가. `fetch_jobs.py`만 수정.
+1. **Phase 3는 필터링** — `config.py` 조건 4개(키워드·지역·경력유형·경력연차)를 AND로 묶는 `filter_jobs()` 추가. `fetch_jobs.py`만 수정.
+2. **venv 그대로 사용** — `beautifulsoup4==4.12.3`, `pytest` 이미 설치 완료. `.\venv\Scripts\Activate.ps1` 활성화 후 바로 실행 가능.
+3. **API 키 불필요** — 사람인 스크래핑 + 원티드 비공식 API 모두 인증 없이 동작.

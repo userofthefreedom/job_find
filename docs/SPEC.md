@@ -1,6 +1,6 @@
-# SPEC — 사람인 채용 공고 자동 수집기
+# SPEC — 사람인+원티드 채용 공고 자동 수집기
 
-_작성일: 2026-06-30 | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-07-09 | 기반 문서: PRD.md_
 
 ---
 
@@ -15,87 +15,173 @@ config.py       ← 사용자 필터 조건 정의
 
 ---
 
-## 2. 사람인 API 명세
+## 2. 데이터 소스
 
-### 2-1. 엔드포인트
+데이터는 두 곳에서 수집한다. 각 소스에서 결과를 가져온 뒤 합산하여
+동일한 필터·중복제거·저장 파이프라인에 넣는다.
+
+### 2A. 사람인 스크래핑
+
+#### 엔드포인트
 
 ```
-GET https://oapi.saramin.co.kr/job-search
+GET https://www.saramin.co.kr/zf_user/search/recruit
 ```
 
-### 2-2. 인증
+#### 요청 파라미터
 
-- 헤더 또는 쿼리 파라미터에 `access-key` 전달
-- 키는 `.env`의 `SARAMIN_ACCESS_KEY`에서 로드
-
-```python
-headers = {"Accept": "application/json"}
-params  = {"access-key": API_KEY, ...}
-```
-
-### 2-3. 요청 파라미터
-
-| 파라미터 | 값 | 설명 |
+| 파라미터 | 예상 값 | 설명 |
 |---|---|---|
-| `access-key` | `str` | API 인증키 |
-| `published` | `1` | 오늘 등록된 공고만 조회 |
-| `count` | `110` | 회당 최대 조회 건수 |
-| `start` | `0, 110, 220, …` | 페이지네이션 오프셋 |
+| `days` | `1` | 오늘 등록된 공고만 조회 |
+| `recruitPageCount` | `40` | 페이지당 최대 조회 건수 |
+| `recruitPage` | `1, 2, 3, …` | 페이지 번호 |
 | `sort` | `RL` | 최신순 정렬 |
 
-> **OQ1 해결 — API 필터 vs 로컬 필터:**
-> API 파라미터(키워드·직무코드·지역코드)는 사용하지 않는다.
-> 이유: 코드 값(job_cd, loc_mcd) 매핑 테이블 관리 부담이 크고,
-> 사용자가 `config.py`를 수정할 때 코드 값까지 찾아야 하는 불편이 생긴다.
-> 대신 `published=1`로 오늘 공고만 가져온 뒤 전량 로컬 필터링한다.
-> 하루 신규 공고 수는 수백 건 수준으로 API 호출 횟수(500회/일)에 여유가 있다.
+> 정확한 파라미터 이름 및 페이지네이션 종료 조건은 구현 시 실제 요청으로 확인한다.
 
-### 2-4. 페이지네이션
+#### 파싱
+
+`beautifulsoup4`로 HTML 파싱. 정확한 CSS 선택자는 구현 시 브라우저 개발자 도구로 확인한다.  
+HTML 파서는 표준 라이브러리 `html.parser`를 사용한다 (별도 설치 불필요).
+
+#### 필드 추출 → 내부 dict
+
+| 내부 키 | 추출 방법 | 비고 |
+|---|---|---|
+| `id` | 공고 링크의 `rec_idx` 파라미터 | `"saramin_" + rec_idx` 형태 |
+| `source` | — | 하드코딩 `"사람인"` |
+| `company` | 회사명 요소 | |
+| `title` | 공고 제목 요소 | |
+| `location` | 지역 태그 | |
+| `job_type` | 고용 형태 태그 | |
+| `experience` | 경력 태그 | |
+| `keyword` | 직무 태그 목록 | 쉼표로 join |
+| `url` | 공고 상세 URL | 절대 URL로 보정 |
+| `deadline` | 마감일 텍스트 | `YYYY-MM-DD`로 파싱 |
 
 ```python
-start = 0
+def normalize_saramin(item: dict) -> dict: ...
+```
+
+### 2B. 원티드 비공식 API
+
+#### 엔드포인트
+
+```
+GET https://www.wanted.co.kr/api/v4/jobs
+```
+
+#### 인증
+
+없음 (인증 불필요한 공개 비공식 API).
+
+#### 요청 파라미터
+
+| 파라미터 | 예상 값 | 설명 |
+|---|---|---|
+| `job_sort` | `job.latest_order` | 최신 등록순 |
+| `limit` | `20` | 페이지당 조회 건수 |
+| `offset` | `0, 20, 40, …` | 페이지네이션 오프셋 |
+
+> 오늘 공고 필터 방법 및 정확한 파라미터는 구현 시 실제 응답으로 확인한다.
+
+#### 페이지네이션
+
+```python
+offset = 0
 while True:
-    response = call_api(start=start, count=110)
-    jobs = response["jobs"]["job"]
+    response = call_wanted(offset=offset)
+    jobs = response["data"]
     if not jobs:
         break
     process(jobs)
-    if start + 110 >= int(response["jobs"]["total"]):
-        break
-    start += 110
+    offset += len(jobs)
 ```
 
-### 2-5. 응답 필드 매핑
+#### 필드 추출 → 내부 dict
 
-API JSON → 내부 dict로 정규화.
-
-| 내부 키 | API 경로 | 비고 |
+| 내부 키 | JSON 경로 | 비고 |
 |---|---|---|
-| `id` | `job.id` | 중복 판단 기준 |
-| `company` | `job.company.detail.name` | |
-| `title` | `job.position.title` | |
-| `location` | `job.position.location.name` | |
-| `job_type` | `job.position.job-type.name` | 정규직·계약직 등 |
-| `experience` | `job.position.experience-level.name` | 경력 1~3년 등 |
-| `keyword` | `job.keyword` | 쉼표 구분 문자열 |
-| `url` | `job.url` | |
-| `deadline` | `job.expiration-timestamp` | Unix timestamp → `YYYY-MM-DD` |
+| `id` | `job["id"]` | `"wanted_" + id` 형태 |
+| `source` | — | 하드코딩 `"원티드"` |
+| `company` | `job["company"]["name"]` | |
+| `title` | `job["position"]` | 리스팅 API는 `position` 필드가 제목 |
+| `location` | `job["address"]["location"]` | 시/도 단위 (예: "서울") |
+| `job_type` | — | 리스팅 API에서 미제공, 빈 문자열 |
+| `experience` | `job["annual_from"]`, `job["annual_to"]` | `_wanted_experience()`로 텍스트 변환 |
+| `keyword` | — | 리스팅 API에서 미제공, 빈 문자열 |
+| `url` | `"https://www.wanted.co.kr/wd/" + job["id"]` | |
+| `deadline` | `job["due_time"]` | 문자열(`"YYYY-MM-DD"`) 또는 `null` → `""` |
 
 ```python
-def normalize(job: dict) -> dict:
-    exp = job.get("position", {}).get("experience-level", {})
-    return {
-        "id":         job["id"],
-        "company":    job["company"]["detail"]["name"],
-        "title":      job["position"]["title"],
-        "location":   job["position"]["location"]["name"],
-        "job_type":   job["position"]["job-type"]["name"],
-        "experience": exp.get("name", ""),
-        "keyword":    job.get("keyword", ""),
-        "url":        job["url"],
-        "deadline":   ts_to_date(job.get("expiration-timestamp", "")),
-    }
+def _wanted_experience(annual_from: int, annual_to: int) -> str:
+    if annual_from == 0 and annual_to == 0:
+        return "경력무관"
+    if annual_from == 0:
+        return f"신입~{annual_to}년"
+    return f"경력 {annual_from}~{annual_to}년"
+
+def normalize_wanted(item: dict) -> dict | None: ...
 ```
+
+> **페이지네이션 종료**: `data` 배열이 비거나 길이가 `limit`보다 작으면 마지막 페이지.  
+> **오늘 공고 필터**: Wanted 리스팅 API에 날짜 필터 없음 → 최신순 최대 100건 수집 후 ID 기반 중복 제거로 재수집 방지.
+
+### 2C. 내부 dict 공통 포맷
+
+두 normalize 함수가 반환하는 dict의 구조:
+
+```python
+{
+    "id":         str,   # "saramin_XXXXX" 또는 "wanted_XXXXX"
+    "source":     str,   # "사람인" 또는 "원티드"
+    "company":    str,
+    "title":      str,
+    "location":   str,
+    "job_type":   str,
+    "experience": str,
+    "keyword":    str,   # 쉼표 구분 문자열
+    "url":        str,
+    "deadline":   str,   # "YYYY-MM-DD" 또는 ""
+}
+```
+
+### 2D. 통합 수집 함수
+
+```python
+def fetch_all() -> list[dict]:
+    return deduplicate_cross_platform(fetch_saramin_all(), fetch_wanted_all())
+```
+
+### 2E. 플랫폼 간 중복 제거
+
+같은 공고가 두 플랫폼에 올라가는 경우를 제목 유사도 + 보조 신호로 탐지한다.  
+**사람인 우선** 유지 (사람인이 list 앞에 오므로 자연스럽게 유지됨).
+
+```python
+def _norm_title(title: str) -> str:
+    return re.sub(r"\s+", "", title).lower()
+
+def deduplicate_cross_platform(saramin: list[dict], wanted: list[dict]) -> list[dict]:
+    result = list(saramin)
+    for w in wanted:
+        is_dup = any(
+            SequenceMatcher(None, _norm_title(s["title"]), _norm_title(w["title"])).ratio() >= 0.85
+            and (s["deadline"] == w["deadline"] or s["location"] == w["location"])
+            for s in saramin
+        )
+        if not is_dup:
+            result.append(w)
+    return result
+```
+
+| 조건 | 판단 |
+|---|---|
+| 제목 유사도 ≥ 0.85 AND (마감일 일치 OR 지역 일치) | 중복 → Wanted 항목 제거 |
+| 제목 유사도 < 0.85 | 다른 공고 → 유지 |
+| 제목 비슷하나 마감일·지역 모두 다름 | 다른 공고로 간주 → 유지 |
+
+> 나머지 케이스(표기 차이가 크거나 제목이 전혀 다를 때)는 X 마커로 수동 처리.
 
 ---
 
@@ -116,7 +202,6 @@ LOCATIONS: list[str] = ["서울", "판교"]
 
 CAREER_TYPE: str | None = None
 # "신입" | "경력" | "신입·경력" | None (전체 허용)
-# job_type이 아닌 experience-level 코드로 판단 (아래 참고)
 
 EXP_MIN: int | None = 1   # 최소 경력 연수 (None → 하한 없음)
 EXP_MAX: int | None = 5   # 최대 경력 연수 (None → 상한 없음)
@@ -213,6 +298,7 @@ skip_ids = active_ids | dismissed_ids
 ════════════════════════════════════════════════
 [X]
 [수집일] 2024-12-10
+[출처]   사람인
 [회사]   카카오
 [제목]   관심 없는 공고
 ...
@@ -223,7 +309,7 @@ skip_ids = active_ids | dismissed_ids
 
 ### 처리 흐름
 
-스크립트 실행 시 API 호출 전에 먼저 수행한다.
+스크립트 실행 시 수집 전에 먼저 수행한다.
 
 ```
 process_x_markers(jobs_path, dismissed_path):
@@ -256,17 +342,19 @@ process_x_markers(jobs_path, dismissed_path):
 ```
 ════════════════════════════════════════════════
 [수집일] 2024-12-10
+[출처]   사람인
 [회사]   카카오
 [제목]   백엔드 개발자 (Python)
 [조건]   서울 강남구 | 정규직 | 경력 1~3년
 [직무]   Python, Django, REST API
 [링크]   https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=73261234
 [마감]   2024-12-31
-[ID]     73261234
+[ID]     saramin_73261234
 ════════════════════════════════════════════════
 ```
 
 - `[ID]` 줄은 **항상 마지막 줄**에 고정 (블록 파싱 시 ID 추출에 사용)
+- `[출처]` 줄: `"사람인"` 또는 `"원티드"` — 항상 출력
 - `[조건]` 줄: `location | job_type | experience` 순, 항목이 빈 문자열이면 해당 항목 생략
 - `[직무]` 줄: `keyword` 필드가 비어 있으면 줄 전체 생략
 - `[마감]` 줄: deadline 변환 실패 시 줄 전체 생략
@@ -278,17 +366,18 @@ process_x_markers(jobs_path, dismissed_path):
 ════════════════════════════════════════════════
 [X]
 [수집일] 2024-12-10
+[출처]   원티드
 [회사]   카카오
 [제목]   백엔드 개발자 (Python)
 [조건]   서울 강남구 | 정규직 | 경력 1~3년
 [직무]   Python, Django, REST API
-[링크]   https://www.saramin.co.kr/...
+[링크]   https://www.wanted.co.kr/wd/12345
 [마감]   2024-12-31
-[ID]     73261234
+[ID]     wanted_12345
 ════════════════════════════════════════════════
 ```
 
-다음 실행 시 이 블록은 파일에서 삭제되고 ID `73261234`는 `dismissed_ids.txt`에 추가된다.
+다음 실행 시 이 블록은 파일에서 삭제되고 ID `wanted_12345`는 `dismissed_ids.txt`에 추가된다.
 
 ### 5-2. dismissed_ids 파일
 
@@ -296,8 +385,8 @@ process_x_markers(jobs_path, dismissed_path):
 인코딩: UTF-8
 
 ```
-73261234
-73261235
+saramin_73261234
+wanted_12345
 ```
 
 ---
@@ -306,11 +395,14 @@ process_x_markers(jobs_path, dismissed_path):
 
 | 상황 | 처리 |
 |---|---|
-| API 호출 실패 (네트워크 오류) | 1회 재시도 후 오류 메시지 출력 및 종료 |
-| API 응답 4xx / 5xx | 재시도 없이 상태 코드와 메시지 출력 후 종료 |
-| API 응답 파싱 실패 (KeyError 등) | 해당 공고 건너뜀, 경고 메시지 출력 후 계속 |
+| 사람인 스크래핑 HTTP 오류 | 1회 재시도 후 오류 메시지 출력, 해당 소스 건너뛰고 계속 |
+| 사람인 HTML 파싱 오류 (AttributeError 등) | 해당 공고 건너뜀, 경고 출력 후 계속 |
+| 원티드 API HTTP 오류 | 1회 재시도 후 오류 메시지 출력, 해당 소스 건너뛰고 계속 |
+| 원티드 API 응답 파싱 실패 (KeyError 등) | 해당 공고 건너뜀, 경고 출력 후 계속 |
 | `output/` 디렉토리 없음 | 자동 생성 |
-| `.env` 파일 없음 / 키 누락 | 즉시 종료, 안내 메시지 출력 |
+| 두 소스 모두 실패 | 0건 처리 후 요약 출력, 정상 종료 |
+
+> 어느 한 소스가 실패해도 나머지 소스 결과는 정상 처리한다.
 
 ---
 
@@ -319,10 +411,9 @@ process_x_markers(jobs_path, dismissed_path):
 ```
 main()
  ├─ [1단계: 초기화]
- │   ├─ load_config()           → .env 로드, API 키 확인
- │   └─ ensure_output_dir()     → output/ 없으면 생성
+ │   └─ ensure_output_dir()       → output/ 없으면 생성
  │
- ├─ [2단계: X 마커 처리] ← API 호출 전에 먼저 실행
+ ├─ [2단계: X 마커 처리] ← 수집 전에 먼저 실행
  │   └─ process_x_markers()
  │       ├─ jobs_all.txt 블록 파싱
  │       ├─ [X] 블록 식별 → ID 추출
@@ -330,15 +421,17 @@ main()
  │       └─ [X] 블록 제거 후 jobs_all.txt 덮어쓰기
  │
  ├─ [3단계: 중복 방지 기준 로드]
- │   ├─ active = load_active_ids()     → jobs_all.txt 파싱
+ │   ├─ active = load_active_ids()       → jobs_all.txt 파싱
  │   └─ dismissed = load_dismissed_ids() → dismissed_ids.txt 읽기
  │       skip_ids = active | dismissed
  │
  ├─ [4단계: 공고 수집 및 저장]
- │   ├─ jobs = fetch_all()              → 페이지네이션 전체 조회
- │   ├─ filtered = filter_jobs(jobs)    → config.py 조건 적용
+ │   ├─ jobs = fetch_all()
+ │   │   ├─ fetch_saramin_all()  → HTML 스크래핑
+ │   │   └─ fetch_wanted_all()   → JSON API 호출
+ │   ├─ filtered = filter_jobs(jobs)     → config.py 조건 적용
  │   ├─ new_jobs = [j for j in filtered if j["id"] not in skip_ids]
- │   └─ write_jobs(new_jobs)            → jobs_all.txt 에 append
+ │   └─ write_jobs(new_jobs)             → jobs_all.txt 에 append
  │
  └─ print_summary(total, filtered, dismissed_count, new)
 ```
@@ -350,17 +443,22 @@ main()
 ```
 # requirements.txt
 requests==2.32.3
-python-dotenv==1.0.1
+python-dotenv==1.0.1      # 사람인 공식 API 승인 시 키 로드용으로 유지
+beautifulsoup4==4.12.3    # 사람인 HTML 파싱
 ```
 
-표준 라이브러리 외 추가 패키지는 위 두 개만 사용한다.
+HTML 파서는 표준 라이브러리 `html.parser`를 사용한다 (별도 설치 불필요).
 
 ---
 
-## 9. 환경 변수 (`.env.example`)
+## 9. 환경 변수
+
+현재 필수 환경 변수 없음.
 
 ```
-SARAMIN_ACCESS_KEY=your_access_key_here
+# .env.example
+# 사람인 공식 API 승인 시 아래 키를 .env 파일에 추가:
+# SARAMIN_ACCESS_KEY=your_access_key_here
 ```
 
 ---
@@ -371,3 +469,4 @@ SARAMIN_ACCESS_KEY=your_access_key_here
 |---|---|
 | 2026-06-30 | 최초 작성 |
 | 2026-06-30 | seen_ids.txt 제거 → file-based dedup + dismissed_ids.txt 구조로 변경; X 마커 기능 추가; 출력 블록에 [ID] 줄 추가 |
+| 2026-07-09 | 사람인 공식 API → 사람인 스크래핑 + 원티드 비공식 API 이중 소스로 전환; ID에 소스 prefix 추가(`saramin_` / `wanted_`); [출처] 출력 필드 추가; beautifulsoup4 의존성 추가; 소스 실패 시 해당 소스만 건너뛰는 오류 처리 추가 |

@@ -35,18 +35,22 @@ python fetch_jobs.py              # "준비 완료" 출력
 
 ---
 
-## Phase 2 — API 조회 및 파일 저장
+## Phase 2 — 이중 소스 수집 및 파일 저장
 
-**목표**: 사람인 API 호출 → 결과를 `jobs_all.txt`에 저장 (필터 없이 전량)
+**목표**: 사람인 스크래핑 + 원티드 API 호출 → 결과를 `jobs_all.txt`에 저장 (필터 없이 전량)
 
 ### 작업 목록
 
-- [ ] `load_config()` — `.env`에서 API 키 로드, 없으면 오류 후 종료
 - [ ] `ensure_output_dir()` — `output/` 없으면 생성
-- [ ] `fetch_page(start)` — 단일 페이지 API 호출, HTTP 오류 처리 (1회 재시도)
-- [ ] `fetch_all()` — 페이지네이션 루프로 전체 공고 수집
-- [ ] `normalize(job)` — API 응답 → 내부 dict 변환
-- [ ] `format_block(job)` — 내부 dict → txt 블록 문자열 변환 (`[ID]` 줄 포함)
+- [ ] `fetch_saramin_page(page)` — 사람인 검색 페이지 1페이지 HTML 요청, HTTP 오류 1회 재시도
+- [ ] `fetch_saramin_all()` — 페이지네이션 루프, `normalize_saramin()` 적용, 내부 dict 리스트 반환
+- [ ] `normalize_saramin(item)` — HTML 파싱 결과 → 내부 dict (`id` = `"saramin_" + rec_idx`)
+- [ ] `fetch_wanted_page(offset)` — 원티드 API 1페이지 JSON 요청, HTTP 오류 1회 재시도
+- [ ] `fetch_wanted_all()` — offset 루프, `normalize_wanted()` 적용, 내부 dict 리스트 반환
+- [ ] `normalize_wanted(item)` — JSON 응답 → 내부 dict (`id` = `"wanted_" + id`)
+- [ ] `_norm_title()` + `deduplicate_cross_platform(saramin, wanted)` — 제목 유사도 ≥ 0.85 AND (마감일·지역 일치) → 중복 제거, 사람인 우선
+- [ ] `fetch_all()` — `deduplicate_cross_platform(fetch_saramin_all(), fetch_wanted_all())` 반환
+- [ ] `format_block(job)` — 내부 dict → txt 블록 문자열 (`[출처]`, `[ID]` 줄 포함)
 - [ ] `write_jobs(jobs)` — `jobs_all.txt`에 append
 - [ ] `load_active_ids()` — `jobs_all.txt` 파싱, `[ID]` 줄 추출
 - [ ] `load_dismissed_ids()` — `dismissed_ids.txt` 읽기
@@ -57,8 +61,9 @@ python fetch_jobs.py              # "준비 완료" 출력
 
 ```powershell
 python fetch_jobs.py
-# output/jobs_all.txt 에 공고 블록이 생성됨
-# 같은 날 두 번 실행해도 중복 추가 없음
+# output/jobs_all.txt 에 사람인·원티드 공고 블록이 생성됨
+# [출처] 줄로 소스 구분 가능
+# 같은 날 두 번 실행해도 중복 추가 없음 (ID prefix로 소스별 구분)
 ```
 
 ---
@@ -128,7 +133,7 @@ python fetch_jobs.py
 ```
 python fetch_jobs.py
   │
-  ├─ [초기화] API 키 로드, output/ 확인
+  ├─ [초기화] output/ 확인
   │
   ├─ [X 마커] jobs_all.txt 에서 [X] 블록 탐색
   │             → 해당 ID를 dismissed_ids.txt 에 추가
@@ -136,7 +141,7 @@ python fetch_jobs.py
   │
   ├─ [중복 기준] active_ids + dismissed_ids 합산
   │
-  ├─ [수집] 사람인 API 페이지네이션 전체 조회
+  ├─ [수집] 사람인 스크래핑 + 원티드 API 페이지네이션 전체 조회
   │
   ├─ [필터] config.py 조건 적용 (키워드·지역·경력유형·경력연차)
   │
@@ -171,3 +176,4 @@ python fetch_jobs.py
 | 날짜 | 내용 |
 |---|---|
 | 2026-06-30 | 최초 작성 |
+| 2026-07-09 | Phase 2 전환 — 사람인 공식 API → 사람인 스크래핑 + 원티드 비공식 API; 전체 실행 흐름 업데이트 |
