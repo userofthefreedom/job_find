@@ -180,6 +180,11 @@ def test_format_block_id_is_last_content_line():
     lines = [l for l in block.strip().splitlines() if l.strip()]
     assert lines[-2].startswith("[ID]")  # last content line before closing divider
 
+def test_format_block_includes_empty_check_marker():
+    block = format_block(_JOB)
+    lines = block.splitlines()
+    assert lines[1] == "[ ]"  # 구분선 바로 다음 줄에 체크용 빈 마커
+
 
 # ── load_active_ids ───────────────────────────────────────────────────────────
 
@@ -268,6 +273,30 @@ def test_filter_keywords_empty_allows_all(monkeypatch):
 def test_filter_keywords_case_insensitive(monkeypatch):
     monkeypatch.setattr(config, "KEYWORDS", ["python"])
     assert filter_keywords(_job_stub(title="Python 개발자"))
+
+def test_filter_keywords_tag_only_match_excluded_by_job_type(monkeypatch):
+    monkeypatch.setattr(config, "KEYWORDS", ["백엔드"])
+    monkeypatch.setattr(config, "EXCLUDE_KEYWORDS", ["교육생"])
+    job = _job_stub(title="AI 경력자 무료교육 모집", keyword="백엔드/서버개발", job_type="교육생")
+    assert not filter_keywords(job)
+
+def test_filter_keywords_tag_only_match_excluded_by_title(monkeypatch):
+    monkeypatch.setattr(config, "KEYWORDS", ["백엔드"])
+    monkeypatch.setattr(config, "EXCLUDE_KEYWORDS", ["상시채용"])
+    job = _job_stub(title="2026년 상반기 상시채용 모집", keyword="백엔드/서버개발, 프론트엔드")
+    assert not filter_keywords(job)
+
+def test_filter_keywords_tag_only_match_passes_without_exclude_hit(monkeypatch):
+    monkeypatch.setattr(config, "KEYWORDS", ["Django"])
+    monkeypatch.setattr(config, "EXCLUDE_KEYWORDS", ["교육생"])
+    job = _job_stub(title="백엔드 개발자", keyword="Python, Django", job_type="정규직")
+    assert filter_keywords(job)
+
+def test_filter_keywords_title_match_bypasses_exclude(monkeypatch):
+    monkeypatch.setattr(config, "KEYWORDS", ["백엔드"])
+    monkeypatch.setattr(config, "EXCLUDE_KEYWORDS", ["상시채용"])
+    job = _job_stub(title="상시채용 백엔드 개발자 모집", keyword="")
+    assert filter_keywords(job)
 
 
 # ── filter_location ───────────────────────────────────────────────────────────

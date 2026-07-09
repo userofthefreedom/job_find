@@ -9,8 +9,9 @@
 - **이중 소스 수집**: 사람인 공개 검색 페이지 스크래핑 + 원티드 비공식 API 동시 조회
 - **교차 중복 제거**: 두 플랫폼에 동시 게재된 공고를 제목 유사도(≥ 85%)로 탐지해 하나만 저장
 - **조건 필터링**: 키워드·지역·경력 유형·연차를 `config.py`에서 자유롭게 설정
+- **채용 공고만 필터링**: 직무 태그만으로 우연히 걸리는 무료교육·설명회·상시채용성 공고는 `EXCLUDE_KEYWORDS`로 자동 제외
 - **신규 공고만 추가**: 이미 저장된 공고(활성 ID)와 사용자가 X 처리한 공고(dismissed ID)는 건너뜀
-- **X 마커 처리**: `jobs_all.txt`에서 관심 없는 공고 블록에 `[X]` 줄을 추가하면 다음 실행 시 자동 제거·영구 제외
+- **X 마커 처리**: 모든 공고 블록에 체크용 빈 마커(`[ ]`)가 자동 삽입되며, `[X]`로 바꾸면 다음 실행 시 자동 제거·영구 제외
 - **Windows 작업 스케줄러**: 매일 점심 무렵 자동 실행
 
 ---
@@ -38,10 +39,10 @@
 
 Python 3.11 이상 필요.
 
-```powershell
+```bash
 # 가상환경 생성 및 활성화
 python -m venv venv
-.\venv\Scripts\Activate.ps1
+source venv/Scripts/activate
 
 # 의존성 설치
 pip install -r requirements.txt
@@ -64,6 +65,10 @@ CAREER_TYPE: str | None = None
 # 경력 연차 범위 (None = 제한 없음)
 EXP_MIN: int | None = 1
 EXP_MAX: int | None = 5
+
+# 채용 공고가 아닌 것으로 간주해 제외할 단어
+# KEYWORDS가 제목이 아닌 직무 태그에만 걸린 경우에 한해, 제목·고용형태에 이 단어가 있으면 탈락
+EXCLUDE_KEYWORDS: list[str] = ["교육생", "무료교육", "설명회", "상시채용"]
 ```
 
 `config.py`를 수정하고 저장한 뒤 다시 실행하면 즉시 반영된다.
@@ -72,8 +77,8 @@ EXP_MAX: int | None = 5
 
 ## 실행
 
-```powershell
-.\venv\Scripts\Activate.ps1
+```bash
+source venv/Scripts/activate
 python fetch_jobs.py
 ```
 
@@ -89,6 +94,7 @@ python fetch_jobs.py
 
 ```
 ════════════════════════════════════════════════
+[ ]
 [수집일] 2026-07-09
 [출처]   사람인
 [회사]   (주)예시기업
@@ -103,7 +109,8 @@ python fetch_jobs.py
 
 ### X 마커 사용법
 
-관심 없는 공고 블록 안에 `[X]` 줄을 추가하면 된다. 위치는 블록 어디든 상관없다.
+모든 공고 블록에는 구분선 바로 다음 줄에 빈 체크 마커 `[ ]`가 자동으로 붙어 있다.
+관심 없는 공고는 이 줄을 `[X]`로 바꿔 쓰면 된다 (꼭 이 줄이 아니어도, 블록 안 어디에 `[X]` 줄을 추가해도 인식된다).
 
 ```
 ════════════════════════════════════════════════
@@ -149,47 +156,43 @@ python fetch_jobs.py
      ```
 6. **확인** → Windows 계정 비밀번호 입력
 
-### PowerShell로 등록하기 (한 번에)
+### 명령어로 등록하기 (한 번에)
 
-PowerShell을 **관리자 권한**으로 열고 아래 명령어를 실행한다.
+bash를 **관리자 권한**으로 열고 아래 명령어를 실행한다 (`schtasks.exe`는 Windows 기본 CLI라 bash에서도 그대로 호출 가능).
 
-```powershell
-$action = New-ScheduledTaskAction `
-    -Execute "C:\Users\mypc\Desktop\new\venv\Scripts\python.exe" `
-    -Argument "fetch_jobs.py" `
-    -WorkingDirectory "C:\Users\mypc\Desktop\new"
-
-$trigger = New-ScheduledTaskTrigger -Daily -At "12:00"
-
-Register-ScheduledTask `
-    -TaskName "채용공고 자동수집" `
-    -Action $action `
-    -Trigger $trigger `
-    -RunLevel Highest
+```bash
+schtasks /Create \
+    /TN "채용공고 자동수집" \
+    /TR "\"C:\Users\mypc\Desktop\new\venv\Scripts\python.exe\" fetch_jobs.py" \
+    /SC DAILY \
+    /ST 12:00 \
+    /RL HIGHEST
 ```
+
+> 시작 위치(`WorkingDirectory`)는 `schtasks`에 직접 지정하는 옵션이 없으므로, `fetch_jobs.py`가 상대 경로 대신 스크립트 자체 위치 기준으로 동작하는지 확인하거나 `/TR`에 `cmd /c "cd /d C:\Users\mypc\Desktop\new && venv\Scripts\python.exe fetch_jobs.py"` 형태로 감싸 실행 위치를 고정한다.
 
 ### 수동 실행 (등록 후 즉시 테스트)
 
-```powershell
-Start-ScheduledTask -TaskName "채용공고 자동수집"
+```bash
+schtasks /Run /TN "채용공고 자동수집"
 ```
 
 ### 등록 확인 및 삭제
 
-```powershell
+```bash
 # 등록된 작업 확인
-Get-ScheduledTask -TaskName "채용공고 자동수집"
+schtasks /Query /TN "채용공고 자동수집"
 
 # 삭제
-Unregister-ScheduledTask -TaskName "채용공고 자동수집" -Confirm:$false
+schtasks /Delete /TN "채용공고 자동수집" /F
 ```
 
 ---
 
 ## 테스트
 
-```powershell
-.\venv\Scripts\Activate.ps1
+```bash
+source venv/Scripts/activate
 python -m pytest tests/ -v
 ```
 

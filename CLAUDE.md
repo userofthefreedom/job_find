@@ -44,10 +44,10 @@
 
 ### 환경 구성 (최초 1회)
 
-```powershell
+```bash
 # 가상환경 생성 및 활성화 (venv 사용 — 전역 Python 환경 오염 방지)
 python -m venv venv
-.\venv\Scripts\Activate.ps1
+source venv/Scripts/activate
 
 # 의존성 설치
 pip install -r requirements.txt
@@ -55,19 +55,19 @@ pip install -r requirements.txt
 
 ### 실행
 
-```powershell
+```bash
 # 가상환경 활성화 후 실행
-.\venv\Scripts\Activate.ps1
+source venv/Scripts/activate
 python fetch_jobs.py
 
 # 또는 가상환경 Python 직접 지정 (Task Scheduler 등록용)
-.\venv\Scripts\python.exe fetch_jobs.py
+venv/Scripts/python.exe fetch_jobs.py
 ```
 
 ### 테스트
 
-```powershell
-.\venv\Scripts\Activate.ps1
+```bash
+source venv/Scripts/activate
 python -m pytest tests/ -v
 ```
 

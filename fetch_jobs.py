@@ -191,8 +191,15 @@ def fetch_all() -> list[dict]:
 def filter_keywords(job: dict) -> bool:
     if not config.KEYWORDS:
         return True
-    text = f"{job['title']} {job['keyword']}".lower()
-    return any(kw.lower() in text for kw in config.KEYWORDS)
+    title = job["title"].lower()
+    if any(kw.lower() in title for kw in config.KEYWORDS):
+        return True  # 제목에서 매칭되면 확실한 채용 공고로 보고 바로 통과
+    keyword = job["keyword"].lower()
+    if not any(kw.lower() in keyword for kw in config.KEYWORDS):
+        return False
+    # 직무 태그로만 매칭된 경우: 무료교육·설명회 등 노이즈 공고인지 추가 검사
+    exclude_text = f"{job['title']} {job['job_type']}".lower()
+    return not any(kw.lower() in exclude_text for kw in config.EXCLUDE_KEYWORDS)
 
 
 def filter_location(job: dict) -> bool:
@@ -233,6 +240,7 @@ def format_block(job: dict) -> str:
     cond = " | ".join(p for p in [job["location"], job["job_type"], job["experience"]] if p)
     lines = [
         DIVIDER,
+        "[ ]",
         f"[수집일] {today}",
         f"[출처]   {job['source']}",
         f"[회사]   {job['company']}",
