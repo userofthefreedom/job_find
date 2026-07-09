@@ -27,7 +27,7 @@
 ```
 /
 ├── fetch_jobs.py        # 메인 실행 스크립트
-├── config.ini            # 필터 조건 정의 (직무·지역·경력 등) — INI 형식, 코드 지식 없이 수정 가능
+├── config.ini           # 필터 조건 정의 (직무·지역·경력 등) — INI 형식, 코드 지식 없이 수정 가능
 ├── requirements.txt
 ├── .env                 # API 키 (Git 제외, 현재 선택 사항)
 ├── .env.example         # 키 템플릿 (Git 포함)
@@ -118,6 +118,13 @@ python -m pytest tests/ -v
 3. **테스트 후 완료 처리**: 각 Phase 구현 후 반드시 테스트 실행, 통과 후 다음 단계 진행
 4. **변경 기록**: 동작 방식·파라미터·파일 형식이 바뀌면 `docs/SPEC.md`를 해당 시점에 업데이트
 5. **Phase 완료 보고**: Phase 하나가 끝나면 무엇을 구현했는지 사용자에게 요약 보고 후 다음 지시 대기
+6. **필터 변경 시 실데이터 검증**: 필터링 로직을 바꾸면 `fetch_saramin_all()`/`fetch_wanted_all()`로 실제 사람인·원티드 데이터를 가져와 필터 전후 결과를 수동 대조하고, 정밀도(오탐)·재현율(누락)을 확인한 뒤 완료 보고
+
+## 다음 단계
+
+v1(Phase 1~4)·v2(config.ini 전환 및 실데이터 검증 기반 필터 수정) 완료. v3 로드맵(Phase 5 안정성/신뢰성,
+Phase 6 필터/매칭 고도화, Phase 7 지원 상태 추적)은 `docs/PLAN.md`에 계획만 수립된 상태이며 구현은
+착수하지 않았다 — 작업 재개 시 `docs/PLAN.md`의 Phase 5~7을 먼저 확인할 것.
 
 ## Scraping & API Constraints
 
