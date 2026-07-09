@@ -1,19 +1,21 @@
 from __future__ import annotations
+import configparser
 import os
 import re
 import sys
 from datetime import datetime
 from difflib import SequenceMatcher
+from types import SimpleNamespace
 
 from bs4 import BeautifulSoup
 import requests
-import config
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
 JOBS_PATH = "output/jobs_all.txt"
 DISMISSED_PATH = "output/dismissed_ids.txt"
+CONFIG_PATH = "config.ini"
 SARAMIN_URL = "https://www.saramin.co.kr/zf_user/search/recruit"
 WANTED_URL = "https://www.wanted.co.kr/api/v4/jobs"
 DIVIDER = "═" * 48
@@ -22,6 +24,34 @@ _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 def ensure_output_dir() -> None:
     os.makedirs("output", exist_ok=True)
+
+
+# ── 설정 로드 (config.ini) ────────────────────────────────────────────────────
+
+def _parse_list(value: str) -> list[str]:
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+def _parse_optional_int(value: str) -> int | None:
+    value = value.strip()
+    return int(value) if value else None
+
+
+def load_config(path: str) -> SimpleNamespace:
+    parser = configparser.ConfigParser()
+    parser.read(path, encoding="utf-8")
+    career_type = parser.get("filter", "career_type", fallback="").strip()
+    return SimpleNamespace(
+        KEYWORDS=_parse_list(parser.get("filter", "keywords", fallback="")),
+        LOCATIONS=_parse_list(parser.get("filter", "locations", fallback="")),
+        CAREER_TYPE=career_type or None,
+        EXP_MIN=_parse_optional_int(parser.get("filter", "exp_min", fallback="")),
+        EXP_MAX=_parse_optional_int(parser.get("filter", "exp_max", fallback="")),
+        EXCLUDE_KEYWORDS=_parse_list(parser.get("filter", "exclude_keywords", fallback="")),
+    )
+
+
+config = load_config(CONFIG_PATH)
 
 
 # ── Saramin ───────────────────────────────────────────────────────────────────

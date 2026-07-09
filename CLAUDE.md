@@ -27,18 +27,27 @@
 ```
 /
 ├── fetch_jobs.py        # 메인 실행 스크립트
-├── config.py            # 필터 조건 정의 (직무·지역·경력 등)
+├── config.ini            # 필터 조건 정의 (직무·지역·경력 등) — INI 형식, 코드 지식 없이 수정 가능
 ├── requirements.txt
 ├── .env                 # API 키 (Git 제외, 현재 선택 사항)
 ├── .env.example         # 키 템플릿 (Git 포함)
 ├── .gitignore
+├── README.md
+├── CLAUDE.md
 ├── output/              # txt 결과 파일 저장 폴더
 │   └── jobs_all.txt
-└── docs/
+├── tests/
+│   └── test_fetch_jobs.py
+└── docs/                # 기획·설계 문서 + 세션 진행 기록
     ├── PRD.md
     ├── SPEC.md
-    └── PLAN.md
+    ├── PLAN.md
+    ├── PROGRESS.md
+    └── TEST_RESULT.md
 ```
+
+프로젝트 루트에는 실행에 직접 필요한 파일(진입점, 설정 파일, 의존성 목록, 표준 문서)만 둔다.
+세션 진행 기록·테스트 결과처럼 실행에 필요 없는 문서는 `docs/`에 둔다.
 
 ## Commands
 

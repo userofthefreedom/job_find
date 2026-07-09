@@ -8,7 +8,7 @@
 
 - **이중 소스 수집**: 사람인 공개 검색 페이지 스크래핑 + 원티드 비공식 API 동시 조회
 - **교차 중복 제거**: 두 플랫폼에 동시 게재된 공고를 제목 유사도(≥ 85%)로 탐지해 하나만 저장
-- **조건 필터링**: 키워드·지역·경력 유형·연차를 `config.py`에서 자유롭게 설정
+- **조건 필터링**: 키워드·지역·경력 유형·연차를 `config.ini`에서 자유롭게 설정 (코드 문법 몰라도 편집 가능)
 - **채용 공고만 필터링**: 직무 태그만으로 우연히 걸리는 무료교육·설명회·상시채용성 공고는 `EXCLUDE_KEYWORDS`로 자동 제외
 - **신규 공고만 추가**: 이미 저장된 공고(활성 ID)와 사용자가 X 처리한 공고(dismissed ID)는 건너뜀
 - **X 마커 처리**: 모든 공고 블록에 체크용 빈 마커(`[ ]`)가 자동 삽입되며, `[X]`로 바꾸면 다음 실행 시 자동 제거·영구 제외
@@ -21,16 +21,20 @@
 ```
 /
 ├── fetch_jobs.py        # 메인 실행 스크립트
-├── config.py            # 필터 조건 (키워드·지역·경력)
+├── config.ini           # 필터 조건 (키워드·지역·경력) — 직접 편집하는 설정 파일
 ├── requirements.txt
 ├── .env.example         # API 키 템플릿 (현재 필수 항목 없음)
 ├── output/
 │   ├── jobs_all.txt     # 누적 공고 파일 (자동 생성)
 │   └── dismissed_ids.txt # X 처리된 ID 목록 (자동 생성)
-└── docs/
+├── tests/
+│   └── test_fetch_jobs.py
+└── docs/                # 기획 문서 + 세션 진행 기록
     ├── PRD.md
     ├── SPEC.md
-    └── PLAN.md
+    ├── PLAN.md
+    ├── PROGRESS.md
+    └── TEST_RESULT.md
 ```
 
 ---
@@ -50,28 +54,31 @@ pip install -r requirements.txt
 
 ---
 
-## 필터 설정 (`config.py`)
+## 필터 설정 (`config.ini`)
 
-```python
-# 공고 제목·직무 키워드 중 하나라도 포함 → 통과 (빈 리스트 = 전체 허용)
-KEYWORDS: list[str] = ["Python", "백엔드"]
+메모장 등 아무 텍스트 편집기로 열어 `=` 뒤의 값만 바꾸면 된다. 코드 문법을 몰라도 된다.
 
-# 근무 지역 중 하나라도 포함 → 통과 (빈 리스트 = 전체 허용)
-LOCATIONS: list[str] = ["서울", "판교"]
+```ini
+[filter]
+# 제목/직무에 하나라도 포함되면 통과 (쉼표로 구분, 비워두면 전체허용)
+keywords = Python, 백엔드
 
-# 경력 유형: "신입" | "경력" | "신입·경력" | None (전체 허용)
-CAREER_TYPE: str | None = None
+# 근무 지역 (쉼표로 구분, 비워두면 전체허용)
+locations = 서울, 판교
 
-# 경력 연차 범위 (None = 제한 없음)
-EXP_MIN: int | None = 1
-EXP_MAX: int | None = 5
+# 경력 구분: 신입 / 경력 / 신입·경력 / 비워두면 전체허용
+career_type =
 
-# 채용 공고가 아닌 것으로 간주해 제외할 단어
-# KEYWORDS가 제목이 아닌 직무 태그에만 걸린 경우에 한해, 제목·고용형태에 이 단어가 있으면 탈락
-EXCLUDE_KEYWORDS: list[str] = ["교육생", "무료교육", "설명회", "상시채용"]
+# 경력 연차 범위 (비워두면 해당 방향 제한없음)
+exp_min = 1
+exp_max = 5
+
+# 채용공고가 아닌 것으로 간주해 제외할 단어 (쉼표로 구분)
+# keywords가 제목이 아닌 직무 태그에만 걸린 경우에 한해 검사한다
+exclude_keywords = 교육생, 무료교육, 설명회, 상시채용
 ```
 
-`config.py`를 수정하고 저장한 뒤 다시 실행하면 즉시 반영된다.
+`config.ini`를 수정하고 저장한 뒤 다시 실행하면 즉시 반영된다.
 
 ---
 
@@ -196,7 +203,7 @@ source venv/Scripts/activate
 python -m pytest tests/ -v
 ```
 
-51개 단위 테스트 전부 통과 확인됨.
+단위 테스트 전부 통과 확인됨.
 
 ---
 
