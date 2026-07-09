@@ -337,16 +337,23 @@ def test_filter_keywords_case_insensitive(monkeypatch):
     monkeypatch.setattr(config, "KEYWORDS", ["python"])
     assert filter_keywords(_job_stub(title="Python 개발자"))
 
-def test_filter_keywords_tag_only_match_excluded_by_job_type(monkeypatch):
-    monkeypatch.setattr(config, "KEYWORDS", ["백엔드"])
-    monkeypatch.setattr(config, "EXCLUDE_KEYWORDS", ["교육생"])
-    job = _job_stub(title="AI 경력자 무료교육 모집", keyword="백엔드/서버개발", job_type="교육생")
+def test_filter_keywords_tag_compound_substring_not_matched(monkeypatch):
+    # "영업기획", "기획MD"처럼 다른 직무 태그에 "기획"이 부분 문자열로 포함되어도
+    # 태그 자체가 KEYWORDS와 완전히 일치하지 않으면 통과시키지 않는다.
+    monkeypatch.setattr(config, "KEYWORDS", ["기획"])
+    job = _job_stub(title="온라인MD 모집", keyword="영업관리, 기획MD, 리테일MD")
     assert not filter_keywords(job)
 
-def test_filter_keywords_tag_only_match_excluded_by_title(monkeypatch):
+def test_filter_keywords_tag_exact_match_excluded_by_job_type(monkeypatch):
+    monkeypatch.setattr(config, "KEYWORDS", ["백엔드"])
+    monkeypatch.setattr(config, "EXCLUDE_KEYWORDS", ["교육생"])
+    job = _job_stub(title="AI 경력자 무료교육 모집", keyword="백엔드, 서버개발", job_type="교육생")
+    assert not filter_keywords(job)
+
+def test_filter_keywords_tag_exact_match_excluded_by_title(monkeypatch):
     monkeypatch.setattr(config, "KEYWORDS", ["백엔드"])
     monkeypatch.setattr(config, "EXCLUDE_KEYWORDS", ["상시채용"])
-    job = _job_stub(title="2026년 상반기 상시채용 모집", keyword="백엔드/서버개발, 프론트엔드")
+    job = _job_stub(title="2026년 상반기 상시채용 모집", keyword="백엔드, 프론트엔드")
     assert not filter_keywords(job)
 
 def test_filter_keywords_tag_only_match_passes_without_exclude_hit(monkeypatch):
@@ -386,6 +393,22 @@ def test_filter_career_type_none_allows_all(monkeypatch):
 def test_filter_career_type_match(monkeypatch):
     monkeypatch.setattr(config, "CAREER_TYPE", "경력")
     assert filter_career_type(_job_stub(experience="경력 3~5년"))
+
+def test_filter_career_type_both_accepts_entry_only(monkeypatch):
+    monkeypatch.setattr(config, "CAREER_TYPE", "신입·경력")
+    assert filter_career_type(_job_stub(experience="신입"))
+
+def test_filter_career_type_both_accepts_career_unrestricted(monkeypatch):
+    monkeypatch.setattr(config, "CAREER_TYPE", "신입·경력")
+    assert filter_career_type(_job_stub(experience="경력무관"))
+
+def test_filter_career_type_both_accepts_specific_range(monkeypatch):
+    monkeypatch.setattr(config, "CAREER_TYPE", "신입·경력")
+    assert filter_career_type(_job_stub(experience="경력 3~8년"))
+
+def test_filter_career_type_both_rejects_blank(monkeypatch):
+    monkeypatch.setattr(config, "CAREER_TYPE", "신입·경력")
+    assert not filter_career_type(_job_stub(experience=""))
 
 def test_filter_career_type_no_match(monkeypatch):
     monkeypatch.setattr(config, "CAREER_TYPE", "경력")
