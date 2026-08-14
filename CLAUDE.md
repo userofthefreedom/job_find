@@ -2,13 +2,20 @@
 
 ## Project Overview
 
-사람인 공개 검색 페이지 스크래핑과 원티드 비공식 API를 사용해 매일 채용 공고를 가져오고,
-사용자가 정의한 조건(직무·지역·경력 등)에 맞는 공고만 필터링해
-로컬 txt 파일에 기록하는 Windows 로컬 자동화 스크립트.
+사람인 공개 검색 페이지 스크래핑과 원티드 비공식 API로 채용 공고를 가져와 사용자가 정의한
+조건(직무·지역·경력 등)에 맞는 공고만 필터링하고, 로컬 임베딩 모델로 관련성 순위를 매기고,
+선택한 공고에 대해 AI가 자소서 초안까지 작성해주는 CLI 도구.
 
-- Windows 작업 스케줄러로 매일 점심 무렵 자동 실행
-- 두 플랫폼(사람인·원티드)에서 공고 수집, 결과를 단일 파일에 통합
-- 신규 공고만 추가(append) 방식으로 누적 기록
+- **완전 명령 기반**: v1~v2의 Windows 작업 스케줄러 무인 실행은 폐기했다(`docs/PLAN.md`
+  Phase 8 변경 이력 참고). 수집부터 자소서 작성까지 전부 `python jobfind.py <command>`로
+  사용자가 직접 트리거한다.
+- **AI provider 다각화**: 자소서 파이프라인의 각 역할(계획/계획평가/작성/초안평가)은
+  Claude CLI(`claude -p`) · Codex CLI(`codex exec`) · Anthropic/OpenAI API 중 `config.ini`에서
+  선택한 백엔드로 동작한다. 어디서 실행하든(터미널/IDE 확장/대화 중 요청) 동일한 CLI
+  진입점을 쓰므로 실행 위치는 자유롭다.
+- **관련성 평가는 비용 없는 로컬 HuggingFace 임베딩 모델**로 처리한다 (LLM 호출 아님).
+- 사람인·원티드 두 플랫폼에서 공고 수집, 결과를 단일 파일(`output/jobs_all.txt`)에 통합해
+  누적 기록한다.
 
 ## Tech Stack
 
@@ -16,29 +23,54 @@
 - **Job data source**:
   - 사람인 공개 검색 페이지 스크래핑 (`https://www.saramin.co.kr/zf_user/search/recruit`)
     - HTML 파싱: `beautifulsoup4`
-  - 원티드 비공식 API (`https://www.wanted.co.kr/api/v4/jobs`)
+  - 원티드 비공식 API (`https://www.wanted.co.kr/api/v4/jobs`, 상세는 `/api/v4/jobs/<id>`)
   - HTTP 통신: `requests`
-- **Config / secrets**: `python-dotenv` (사람인 공식 API 승인 시 키 로드용으로 유지)
-- **Runtime**: Windows 로컬, Windows 작업 스케줄러(Task Scheduler)
-- **Output**: UTF-8 txt 파일 (단일 누적 파일 `output/jobs_all.txt`)
+- **관련성 평가**: `sentence-transformers` + 사전학습 한국어 문장 임베딩 모델
+  (`jhgan/ko-sroberta-multitask`, 최초 실행 시 자동 다운로드). 파인튜닝은 하지 않음 —
+  자세한 배경은 `docs/PLAN.md` Phase 9 참고
+- **AI provider**: `jobfind/providers/`에 4개 백엔드
+  - `claude_cli`: `claude -p` subprocess 헤드리스 호출 (이미 로그인된 세션 사용, API 키 불필요)
+  - `codex_cli`: `codex exec` subprocess 헤드리스 호출 (실제 플래그 미검증 — `docs/PLAN.md`
+    Phase 11 리스크 참고)
+  - `api:anthropic` / `api:openai`: `requests`로 Messages/Chat Completions API 직접 호출
+    (`.env`의 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 사용, 호출당 과금)
+- **Config / secrets**: `python-dotenv` — API 키 로드용
+- **Runtime**: Windows 로컬, 사용자가 터미널에서 직접 실행하는 CLI (`jobfind.py`)
+- **Output**: UTF-8 txt 파일(`output/jobs_all.txt`) + 공고별 자소서 결과
+  (`output/cover_letters/<공고ID>/`)
 
 ## Project Structure
 
 ```
 /
-├── fetch_jobs.py        # 메인 실행 스크립트
-├── config.ini           # 필터 조건 정의 (직무·지역·경력 등) — INI 형식, 코드 지식 없이 수정 가능
+├── jobfind.py                  # 얇은 진입점 — jobfind.cli.main() 호출
+├── jobfind/
+│   ├── cli.py                   # argparse 서브커맨드: collect / evaluate / add / select / write
+│   ├── config.py                 # config.ini 로드 (filter/relevance/providers 섹션)
+│   ├── collectors/
+│   │   ├── saramin.py            # 사람인 목록 스크래핑 + 단건 상세 조회(og:description)
+│   │   └── wanted.py             # 원티드 목록/상세 API 호출
+│   ├── dedup.py                  # 플랫폼 간 중복 제거
+│   ├── filters.py                # config.ini 기반 1차 필터 (키워드/지역/경력유형/연차)
+│   ├── relevance.py              # HF 임베딩 기반 2차 필터 — 직무x도메인 랭킹, 상위 top_n만 유지
+│   ├── selection.py               # [자소서] 마커 스캔, materials/ 폴더 준비
+│   ├── storage.py                # jobs_all.txt/dismissed_ids.txt 읽기·쓰기, 블록 파싱, 마커 처리
+│   ├── providers/                # AI provider 추상화 (claude_cli/codex_cli/api)
+│   └── pipeline/                 # 자소서 오케스트레이션 (prompts.py, orchestrator.py)
+├── config.ini                    # 필터·관련성·provider 설정 — INI 형식, 코드 지식 없이 수정 가능
+├── profile.md                    # 사용자 이력/자기소개 자유 텍스트 (.gitignore 대상)
+├── profile.md.example            # profile.md 템플릿 (Git 포함)
 ├── requirements.txt
-├── .env                 # API 키 (Git 제외, 현재 선택 사항)
-├── .env.example         # 키 템플릿 (Git 포함)
+├── .env / .env.example           # API 키 (.env는 Git 제외, api:* provider 쓸 때만 필요)
 ├── .gitignore
 ├── README.md
 ├── CLAUDE.md
-├── output/              # txt 결과 파일 저장 폴더
-│   └── jobs_all.txt
+├── output/                       # 실행 결과 저장 폴더 (전체 Git 제외)
+│   ├── jobs_all.txt
+│   ├── dismissed_ids.txt
+│   └── cover_letters/<공고ID>/  # plan.md, plan_review.md, draft.md, draft_review.md, materials/
 ├── tests/
-│   └── test_fetch_jobs.py
-└── docs/                # 기획·설계 문서 + 세션 진행 기록
+└── docs/                         # 기획·설계 문서 + 세션 진행 기록
     ├── PRD.md
     ├── SPEC.md
     ├── PLAN.md
@@ -58,19 +90,20 @@
 python -m venv venv
 source venv/Scripts/activate
 
-# 의존성 설치
+# 의존성 설치 (sentence-transformers·torch 포함이라 최초 설치에 시간이 걸릴 수 있음)
 pip install -r requirements.txt
 ```
 
 ### 실행
 
 ```bash
-# 가상환경 활성화 후 실행
 source venv/Scripts/activate
-python fetch_jobs.py
 
-# 또는 가상환경 Python 직접 지정 (Task Scheduler 등록용)
-venv/Scripts/python.exe fetch_jobs.py
+python jobfind.py collect     # 사람인+원티드 수집 → 1차 필터 → jobs_all.txt에 저장
+python jobfind.py evaluate    # 직무·도메인 관련성 순으로 정렬해 상위 top_n건만 유지
+python jobfind.py add <url>   # 사람인/원티드 공고 URL을 수동으로 추가
+python jobfind.py select      # jobs_all.txt에서 [자소서]로 표시한 공고에 materials/ 폴더 준비
+python jobfind.py write       # [자소서] 선택된 공고(최대 4개)의 자소서 초안 작성
 ```
 
 ### 테스트
@@ -80,20 +113,15 @@ source venv/Scripts/activate
 python -m pytest tests/ -v
 ```
 
-### Windows 작업 스케줄러 등록 (예시)
-
-작업 스케줄러 → 새 작업 → 트리거: 매일 12:00 → 동작:
-
-- 프로그램: `C:\Users\mypc\Desktop\new\venv\Scripts\python.exe`
-- 인수: `fetch_jobs.py`
-- 시작 위치: `C:\Users\mypc\Desktop\new`
-
 ## Code Style
 
-이 프로젝트는 단일 실행 스크립트 수준이므로 과도한 추상화를 피한다.
+이 프로젝트는 원래 "스크립트 수준 프로젝트"로 시작해 단일 파일(`fetch_jobs.py`)에 모든 로직을
+두고 별도 모듈 분리를 금지했었다. v3 재설계(Phase 8, `docs/PLAN.md` 참고)에서 AI 오케스트레이션
+파이프라인·provider 추상화 등 새 영역이 추가되며 단일 파일로는 관리가 불가능해져 이 원칙을
+폐기하고 `jobfind/` 패키지로 전환했다. 다만 과도한 추상화를 피한다는 기본 태도는 유지한다.
 
-- 함수 단위로 역할 분리 (수집 / 필터링 / 파일 저장)
-- 클래스 사용 최소화 — 단순 함수와 모듈로 구성
+- 기능 단위로 모듈 분리 (수집 / 필터 / 관련성평가 / 저장 / provider / 파이프라인)
+- 클래스는 상태를 가져야 하는 경우(예: provider 구현체)에만 사용 — 나머지는 함수로 구성
 - 타입 힌트 사용 (함수 시그니처 수준)
 - 주석은 WHY가 명확하지 않을 때만 작성, 코드 설명성 주석 금지
 - 파일 하나당 150줄 이하를 목표로 유지
@@ -105,10 +133,15 @@ python -m pytest tests/ -v
 - `.env` 파일은 `.gitignore`에 포함해 절대 커밋하지 않는다.
 - **`.env` 파일은 Claude가 수정하지 않는다.** 키 값 변경은 사용자가 직접 한다.
 - `.env.example`에는 실제 키 값 없이 변수 이름과 형식만 기재한다.
+- `profile.md`(사용자 이력서/자기소개)는 개인정보이므로 `.gitignore`에 포함해 커밋하지 않는다.
+  실제 내용 없는 `profile.md.example` 템플릿만 커밋한다.
 
 ```
-# .env.example — 현재 필수 항목 없음
+# .env.example
 # 사람인 공식 API 승인 시: SARAMIN_ACCESS_KEY=your_access_key_here
+# config.ini [providers]에서 api:anthropic / api:openai 백엔드를 쓸 때만 필요:
+# ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# OPENAI_API_KEY=your_openai_api_key_here
 ```
 
 ## Workflow Rules
@@ -118,19 +151,35 @@ python -m pytest tests/ -v
 3. **테스트 후 완료 처리**: 각 Phase 구현 후 반드시 테스트 실행, 통과 후 다음 단계 진행
 4. **변경 기록**: 동작 방식·파라미터·파일 형식이 바뀌면 `docs/SPEC.md`를 해당 시점에 업데이트
 5. **Phase 완료 보고**: Phase 하나가 끝나면 무엇을 구현했는지 사용자에게 요약 보고 후 다음 지시 대기
-6. **필터 변경 시 실데이터 검증**: 필터링 로직을 바꾸면 `fetch_saramin_all()`/`fetch_wanted_all()`로 실제 사람인·원티드 데이터를 가져와 필터 전후 결과를 수동 대조하고, 정밀도(오탐)·재현율(누락)을 확인한 뒤 완료 보고
+6. **필터 변경 시 실데이터 검증**: 필터링/관련성 랭킹 로직을 바꾸면 실제 사람인·원티드 데이터로
+   변경 전후 결과를 수동 대조하고, 정밀도(오탐)·재현율(누락)을 확인한 뒤 완료 보고
+7. **AI 파이프라인 변경 시 실제 provider로 최소 1회 검증**: prompts.py/orchestrator.py를 바꾸면
+   mock provider 단위 테스트뿐 아니라 실제 provider(기본 `claude_cli`) 1회 end-to-end 실행으로
+   결과물을 직접 확인한 뒤 완료 보고. 테스트에 사용한 실데이터(jobs_all.txt 마커, profile.md,
+   output/cover_letters/)는 검증 후 원상복구한다.
 
 ## 다음 단계
 
-v1(Phase 1~4)·v2(config.ini 전환 및 실데이터 검증 기반 필터 수정) 완료. v3 로드맵(Phase 5 안정성/신뢰성,
-Phase 6 필터/매칭 고도화, Phase 7 지원 상태 추적)은 `docs/PLAN.md`에 계획만 수립된 상태이며 구현은
-착수하지 않았다 — 작업 재개 시 `docs/PLAN.md`의 Phase 5~7을 먼저 확인할 것.
+v1(Phase 1~4, 사람인+원티드 수집)·v2(config.ini 전환 및 실데이터 검증 기반 필터 수정)·
+v3 재설계(Phase 8~13: 패키지 재구조화, HF 임베딩 관련성 랭킹, 수동 추가/자소서 선택 마커,
+AI provider 추상화, 자소서 오케스트레이션 파이프라인, 문서 정리) 모두 완료됐다.
+
+기존 v3 로드맵 초안(Phase 5~7 — 실행 로그/이상 감지, 필터 고도화, 지원 상태 추적)은 구현에
+착수하지 못한 채 우선순위가 밀렸다. 아이디어 자체는 여전히 유효한 개선 후보다 — 작업 재개 시
+`docs/PLAN.md`의 "구현 전략" 인트로와 Phase 5~7 섹션을 먼저 확인한다.
 
 ## Scraping & API Constraints
 
 - **사람인 스크래핑**: 공개 검색 페이지 HTML 파싱 (`days=1` 파라미터로 오늘 공고 필터)
   - 페이지당 최대 40건, 페이지네이션으로 전체 수집
   - HTTP 오류 시 **1회** 재시도, 실패 시 해당 소스 건너뛰고 원티드 결과만 사용
+  - 상세 페이지(`add`/자소서 파이프라인용)는 `og:description` 메타태그로 회사/제목/경력/
+    지역/마감일만 얻을 수 있다. **본문(담당업무·자격요건 등)은 자바스크립트 렌더링이라
+    정적 요청으로는 가져올 수 없음** — 자소서 파이프라인에서 이 한계로 인해 사람인 공고는
+    상세 설명 보강 없이 목록 정보만으로 작성된다 (`docs/PLAN.md` Phase 12 검증 기록 참고)
 - **원티드 비공식 API**: 인증 없이 JSON 응답 수신
   - 페이지당 20건, offset 기반 페이지네이션
   - HTTP 오류 시 **1회** 재시도, 실패 시 해당 소스 건너뛰고 사람인 결과만 사용
+  - 상세 API(`/api/v4/jobs/<id>`)는 `detail.intro/main_tasks/requirements/preferred_points/
+    benefits`를 구조화된 필드로 제공 — 자소서 파이프라인이 이걸 그대로 활용해 원티드 공고는
+    실제 상세 요건을 반영한 결과가 나온다

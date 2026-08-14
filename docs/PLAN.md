@@ -1,6 +1,6 @@
-# PLAN — 사람인 채용 공고 자동 수집기
+# PLAN — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 기반 문서: PRD.md, SPEC.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-14 (v3 재설계 반영) | 기반 문서: PRD.md, SPEC.md_
 
 ---
 
@@ -9,9 +9,16 @@ _작성일: 2026-06-30 | 기반 문서: PRD.md, SPEC.md_
 전체를 여러 Phase로 나눈다. 각 Phase는 독립적으로 실행·검증 가능한 단위다.
 Phase가 끝날 때마다 테스트를 실행하고 사용자 확인 후 다음 Phase로 진행한다.
 
-Phase 1~4는 v1(최초 구현), Phase 5~7은 v3 로드맵(2026-07-10 계획, 구현 미착수)이다.
-v2(config.ini 전환, 실데이터 검증 기반 필터 수정)는 별도 Phase 없이 Phase 1~4 결과물에 대한
-개선 작업으로 진행되어 `docs/SPEC.md` 변경 이력에 기록되어 있다.
+Phase 1~4는 v1(최초 구현), Phase 8~13은 v3 재설계(2026-08-14, "찾는 과정 발전 + 자소서 초안
+작성"으로 범위 확장)로 전부 완료됐다. v2(config.ini 전환, 실데이터 검증 기반 필터 수정)는
+별도 Phase 없이 Phase 1~4 결과물에 대한 개선 작업으로 진행되어 `docs/SPEC.md` 변경 이력에
+기록되어 있다.
+
+**Phase 5~7(아래)은 2026-07-10에 세운 v3 로드맵 초안으로, 구현에 착수하지 않은 채 남아 있다.**
+이후 2026-08-14 세션에서 범위가 훨씬 크게 확장되며 Phase 8~13으로 대체 착수했다. Phase 5~7의
+개별 아이디어(실행 로그, 필터 고도화, 지원 상태 추적)는 Phase 8~13이 완료된 지금도 여전히
+유효한 개선 후보이지만, 우선순위가 밀려 구현되지 않았다 — 작업 재개 시 이 Phase들을 그대로
+이어가거나, 지금 구조(`jobfind/` 패키지)에 맞게 다시 계획해야 한다.
 
 ---
 
@@ -216,6 +223,139 @@ python fetch_jobs.py
 
 ---
 
+## Phase 8 — 패키지 재구조화 ✅ (2026-08-14 완료)
+
+**목표**: `fetch_jobs.py` 단일 스크립트를 `jobfind/` 패키지로 순수 리팩터링 (동작 변경 없음)
+
+### 구현 내용
+
+- `jobfind/{config,dedup,filters,storage}.py`, `jobfind/collectors/{saramin,wanted}.py`로
+  기존 함수를 로직 변경 없이 이관
+- `jobfind.py`(얇은 진입점) + `jobfind/cli.py`에 `collect` 서브커맨드 구현 — 기존 `main()`과
+  동일 동작
+- 기존 51개 테스트를 새 모듈 경로에 맞게 이관, 전부 통과
+- Windows 작업 스케줄러 무인 실행 원칙을 폐기하고 전부 명령 기반으로 전환 (배경은
+  `docs/PRD.md` §1 참고)
+
+### 검증
+
+- `python jobfind.py collect` 실행 결과가 기존 `python fetch_jobs.py`와 동일함을 실데이터로 확인
+- 재실행 시 신규 저장 0건 — 중복 방지 로직 정상 동작
+
+---
+
+## Phase 9 — 관련성 평가 ✅ (2026-08-14 완료, 세션 중 재설계됨)
+
+**목표**: `config.ini keywords` 문자열 매칭을 넘어 의미 기반 관련성 평가 추가 (비용 없음)
+
+### 1차 구현 → 재설계
+
+처음에는 `role_description`(자연어 한 문장) + `threshold`(코사인 유사도 임계값) 이진 필터로
+구현했으나, 실데이터 검증에서 비슷한 공고끼리도 판정이 갈리고 탈락하면 영구 제외되는 문제가
+드러났다. 사용자 요청으로 **직무(`roles`)와 도메인(`domains`)을 분리 입력받아 각각 유사도를
+구하고 합산 점수로 정렬해 상위 `top_n`건만 남기는 랭킹 방식**으로 재설계했다 — 순위 밖 공고는
+영구 제외되지 않고 다음 수집에서 다시 상위권에 들 수 있다. 상세 명세는 `docs/SPEC.md` §11 참고.
+
+### 검증
+
+- mock 모델로 결합 점수/랭킹/top_n 자르기 로직 단위 테스트
+- 실데이터(`roles=기획,PM`, `domains=커머스,화장품`)로 검증: 도메인·직무 둘 다 매칭되는
+  공고가 상위권, 하나만 매칭되는 공고가 중위권, 둘 다 약한 공고가 최하위로 정렬됨을 확인
+
+---
+
+## Phase 10 — 수동 추가 + 자소서 선택 마커 + 보충 자료 입력 ✅ (2026-08-14 완료)
+
+### 구현 내용
+
+- `jobfind.py add <url>` — 사람인은 상세 페이지 `og:description` 메타태그(회사/제목/경력/
+  지역/마감일)를 파싱, 원티드는 상세 API(`/api/v4/jobs/<id>`)를 호출해 기존
+  `normalize_wanted()`를 그대로 재사용. 이미 목록에 있는 공고는 자동으로 건너뜀
+- `jobfind/storage.py`에 `is_selected()`(`[자소서]` 마커) 추가
+- `jobfind.py select` — `[자소서]` 선택된 공고마다 `output/cover_letters/<ID>/materials/`
+  폴더 생성. 4개 초과 선택 시 경고 출력 (강제 차단은 `write` 단계에서)
+- 보충 자료(이미지·`notes.md`)는 사용자가 `materials/`에 직접 넣어두는 방식 — 자동 수집
+  기능은 만들지 않음 (파일명이 임의여도 상관없이 폴더 안 전부를 계획 단계에서 읽음)
+
+### 검증
+
+- 실제 사람인/원티드 URL로 추가 → 재추가 시 중복 스킵 확인, 잘못된 URL은 명확한 에러 메시지
+- `[자소서]` 마커 → `select` → `materials/` 폴더 생성까지 실제로 실행해 확인
+
+---
+
+## Phase 11 — Provider 추상화 계층 ✅ (2026-08-14 완료)
+
+### 구현 내용
+
+- `jobfind/providers/{base,claude_cli,codex_cli,api}.py` —
+  `Provider.run(system_prompt, user_prompt, images=None) -> str` 인터페이스로 4개 백엔드 통일
+- `config.ini [providers]`에서 계획/계획평가/작성/초안평가 역할별로 다른 백엔드 조합 가능
+
+### 검증 (실제 `claude` CLI로 mock 없이 확인)
+
+- 텍스트 전용 호출: JSON 응답의 `result` 필드에서 정상적으로 텍스트 추출됨
+- 이미지 포함 호출: `cwd`를 materials 폴더로 잡고 `--allowedTools Read`만 열어주니 실제
+  이미지를 읽고 반영한 답변을 줌 (격리 설계 확인)
+- `codex` CLI는 이 환경에 설치돼 있지 않아 미검증 — 공개된 `codex exec` 규약 기준으로만
+  작성 (미결 사항, `docs/PRD.md` OQ4)
+- **비용 관련 발견**: `claude_cli`는 매 호출마다 Claude Code 자체 시스템 프롬프트/툴 정의
+  오버헤드로 약 9천 토큰이 캐시 생성으로 잡힌다 (`--bare`는 OAuth 로그인과 호환 안 돼 못 씀).
+  "API 키 없이 공짜"라는 가정과 달리 구독 요금제에 따라 실질적 과금/한도 소모가 될 수 있음
+
+---
+
+## Phase 12 — 자소서 오케스트레이션 파이프라인 ✅ (2026-08-14 완료, 세션 중 보강됨)
+
+### 구현 내용
+
+- `profile.md`(사용자 이력, `.gitignore` 대상) + `profile.md.example` 템플릿
+- `jobfind/pipeline/prompts.py` — 계획/계획평가/작성/초안평가 4개 역할 프롬프트
+- `jobfind/pipeline/orchestrator.py` — `run_for_job()`: 계획 → 계획평가 →
+  (NEEDS_REVISION이면 재작성) → 작성 → 초안평가, 결과를
+  `output/cover_letters/<ID>/{plan,plan_review,draft,draft_review}.md`에 저장
+- `jobfind.py write` 커맨드로 전체 파이프라인 실행
+
+### 실데이터 검증 1회차 — 품질 이슈 발견
+
+실제 공고 1건에 `claude_cli`로 전체 파이프라인을 실행해보니, 격리된 평가 agent가 실제로
+날카로운 피드백(진부한 표현·업계 용어 부재·정량 데이터 부족 지적)을 냈고 `NEEDS_REVISION`
+재작성 루프도 정상 동작했다. 다만 계획평가·초안평가 양쪽 모두 "planner/writer가 목록 페이지
+요약 정보만 보고 작성했다"는 같은 근본 문제를 지적 — writer가 실제로 `WebFetch`를 시도했으나
+`--allowedTools ""`로 막혀 있어 실패, 대신 지어내지 않고 정직하게 한계를 밝히는 것으로 대응함.
+
+### 보강 — 공고 상세 설명 fetch 추가
+
+처음엔 provider의 `WebFetch` 툴을 열어주는 방식을 검토했으나, provider마다 다르게 동작해야
+하는 문제가 있어 대신 **서버 측(Python)에서 한 번 가져와 `job_text`에 얹는 방식**으로
+변경했다 — provider 종류와 무관하게 동일하게 동작한다 (`fetch_posting_text()`).
+
+- 원티드: 상세 API의 `detail.intro/main_tasks/requirements/preferred_points/benefits`를
+  그대로 활용 (`fetch_wanted_description()`) — 실제로 잘 동작함
+- 사람인: 정적 페이지 요청 + `BeautifulSoup.get_text()`를 먼저 시도했으나, 본문이
+  자바스크립트로 렌더링돼 헤더/내비게이션 텍스트만 잡힌다는 걸 실제로 확인 — 노이즈만
+  추가하는 꼴이라 **빈 문자열 반환으로 되돌림** (알려진 한계, `docs/PRD.md` OQ5)
+
+### 실데이터 검증 2회차 — 개선 확인
+
+같은 방식으로 원티드 공고 1건을 재검증: 계획평가·초안 모두 실제 회사명("주밍코리아")·업무
+내용("특허/IP 담당")·자격요건을 구체적으로 반영한 결과로 확인됨. 사람인 공고는 기존과
+동일(더 나빠지지 않음).
+
+### 완료 기준
+
+- mock provider로 파이프라인 단위 테스트(134개) + 실제 `claude_cli`로 공고 2건(사람인 1 +
+  원티드 1) end-to-end 실행 검증 완료
+- 검증에 사용한 `jobs_all.txt` 마커·`profile.md`·`output/cover_letters/`는 매번 원상복구함
+
+---
+
+## Phase 13 — 문서 정리 ✅ (2026-08-14 완료)
+
+`CLAUDE.md`, `README.md`, `docs/PRD.md`, `docs/SPEC.md`, `docs/PLAN.md`(이 문서)를 v3 재설계
+결과에 맞게 갱신. 상세 변경 내용은 각 문서의 변경 이력/최종 수정일 참고.
+
+---
 ## 파일 생성 순서 요약
 
 | Phase | 생성 / 수정 파일 |
@@ -224,9 +364,15 @@ python fetch_jobs.py
 | 2 | `fetch_jobs.py` (API 조회·저장·중복 제거) |
 | 3 | `fetch_jobs.py` (필터 함수 추가) |
 | 4 | `fetch_jobs.py` (X 마커 처리 추가) |
-| 5 (예정) | `fetch_jobs.py` (실행 로그·이상 감지 추가) |
-| 6 (예정) | `fetch_jobs.py`, `config.ini`, `docs/SPEC.md` (필터 로직 확장) |
-| 7 (예정) | `fetch_jobs.py`, `docs/SPEC.md` (상태 마커 추가) |
+| 5 (미착수) | `fetch_jobs.py` (실행 로그·이상 감지 추가) — Phase 8~13에 우선순위 밀림 |
+| 6 (미착수) | `fetch_jobs.py`, `config.ini`, `docs/SPEC.md` (필터 로직 확장) — Phase 8~13에 우선순위 밀림 |
+| 7 (미착수) | `fetch_jobs.py`, `docs/SPEC.md` (상태 마커 추가) — Phase 8~13에 우선순위 밀림 |
+| 8 | `jobfind/` 패키지 전체(신설), `fetch_jobs.py`/`tests/test_fetch_jobs.py` 삭제 |
+| 9 | `jobfind/relevance.py`, `config.ini` |
+| 10 | `jobfind/{collectors/*,selection.py,storage.py,cli.py}` |
+| 11 | `jobfind/providers/`, `config.ini`, `.env.example` |
+| 12 | `jobfind/pipeline/`, `profile.md.example`, `.gitignore` |
+| 13 | `CLAUDE.md`, `README.md`, `docs/PRD.md`, `docs/SPEC.md`, `docs/PLAN.md`(이 문서) |
 
 > Phase 1은 원래 `config.py`로 시작했으나, v2에서 `config.ini`(INI, `configparser` 기반)로 전환됨 — 자세한 내용은 `docs/SPEC.md` 변경 이력 참고.
 
@@ -246,4 +392,5 @@ python fetch_jobs.py
 |---|---|
 | 2026-06-30 | 최초 작성 |
 | 2026-07-09 | Phase 2 전환 — 사람인 공식 API → 사람인 스크래핑 + 원티드 비공식 API; 전체 실행 흐름 업데이트 |
-| 2026-07-10 | v3 로드맵 추가 — Phase 5(안정성/신뢰성) · Phase 6(필터/매칭 고도화) · Phase 7(지원 상태 추적) 계획 수립(구현 미착수); "미구현 (Phase 2 이후 검토)" 항목을 Phase 5~7로 흡수·대체 |
+| 2026-07-10 | v3 로드맵 초안 추가 — Phase 5(안정성/신뢰성) · Phase 6(필터/매칭 고도화) · Phase 7(지원 상태 추적) 계획 수립(구현 미착수); "미구현 (Phase 2 이후 검토)" 항목을 Phase 5~7로 흡수·대체 |
+| 2026-08-14 | v3 재설계 착수 — "찾는 과정 발전 + 자소서 초안 작성"으로 범위 확장, Phase 5~7 로드맵 초안 대신 Phase 8~13으로 신규 계획·전부 구현 완료(패키지 재구조화, 관련성 랭킹, 수동추가/자소서 선택, provider 추상화, 자소서 파이프라인, 문서 정리). 세부 내용은 위 Phase 8~13 섹션 참고 |

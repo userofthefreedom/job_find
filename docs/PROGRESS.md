@@ -131,17 +131,85 @@
 
 ---
 
+## Phase 8 — 패키지 재구조화 ✅ (2026-08-14 완료)
+
+`fetch_jobs.py` 단일 스크립트를 `jobfind/` 패키지로 순수 리팩터링(로직 변경 없음). `config.py`,
+`collectors/{saramin,wanted}.py`, `dedup.py`, `filters.py`, `storage.py`, `cli.py`로 분리하고
+`jobfind.py`를 진입점으로 뒀다. 기존 51개 테스트를 새 경로로 이관해 전부 통과, 실제
+`python jobfind.py collect` 실행 결과가 기존 스크립트와 동일함을 확인.
+
+---
+
+## Phase 9 — 관련성 평가 ✅ (2026-08-14 완료)
+
+`jobfind/relevance.py`에 HF 임베딩(`jhgan/ko-sroberta-multitask`) 기반 관련성 평가 추가.
+`config.ini [relevance]`에 `roles`(직무)/`domains`(도메인)/`top_n`을 입력하면 결합 점수로
+정렬해 상위 `top_n`건만 남긴다. 처음 구현한 `role_description`+`threshold` 이진 필터는
+실데이터 검증에서 비슷한 공고끼리 판정이 갈리는 문제가 있어 랭킹 방식으로 재설계했다.
+
+### 테스트 결과
+
+76개 통과. mock 모델로 결합 점수/랭킹/top_n 로직 검증.
+
+---
+
+## Phase 10 — 수동 추가 + 자소서 선택 마커 ✅ (2026-08-14 완료)
+
+- `jobfind.py add <url>` — 사람인은 `og:description` 메타태그, 원티드는 상세 API로 단건 조회
+- `jobfind.py select` — `[자소서]` 마커된 공고에 `output/cover_letters/<ID>/materials/` 폴더 준비
+
+### 테스트 결과
+
+92개 통과. 실제 URL로 추가/중복 스킵/materials 폴더 생성까지 실데이터로 확인.
+
+---
+
+## Phase 11 — Provider 추상화 계층 ✅ (2026-08-14 완료)
+
+`jobfind/providers/{claude_cli,codex_cli,api}.py` — `Provider.run(system, user, images) -> str`
+인터페이스로 4개 백엔드(`claude_cli`/`codex_cli`/`api:anthropic`/`api:openai`) 통일.
+`claude -p`는 mock 없이 실제 호출로 텍스트/이미지 양쪽 경로 검증 완료. `codex_cli`는 미설치
+환경이라 공개 규약 기준으로만 작성.
+
+### 테스트 결과
+
+110개 통과.
+
+---
+
+## Phase 12 — 자소서 오케스트레이션 파이프라인 ✅ (2026-08-14 완료)
+
+`jobfind/pipeline/{prompts,orchestrator}.py` — 선택된 공고마다 계획 → 계획평가 →
+(NEEDS_REVISION이면 재작성) → 작성 → 초안평가를 실행, `output/cover_letters/<ID>/`에 저장.
+실데이터 검증(claude_cli, 실제 공고 2건)에서 격리된 평가 agent가 실제로 구체적인 피드백을
+냈고, 재작성 루프도 정상 동작함을 확인. 검증 중 "planner/writer가 목록 요약만 보고 작성해
+품질이 떨어진다"는 문제를 발견해 `fetch_posting_text()`(원티드 상세 API 활용, 사람인은 JS
+렌더링 한계로 미적용)를 추가로 구현.
+
+### 테스트 결과
+
+135개 통과.
+
+---
+
+## Phase 13 — 문서 정리 ✅ (2026-08-14 완료)
+
+`CLAUDE.md`/`README.md`/`docs/PRD.md`/`docs/SPEC.md`/`docs/PLAN.md`/`docs/PROGRESS.md`(이 문서)를
+v3 재설계(Phase 8~13) 결과에 맞게 갱신.
+
+---
+
 ## 현재 Git 상태
 
 | 항목 | 내용 |
 |---|---|
 | 브랜치 | `master` |
-| 전체 구현 | Phase 1~4 완료 |
-| 마지막 커밋 예정 | Phase 4 X 마커 처리 (`fetch_jobs.py`, 테스트, PROGRESS.md) |
+| 전체 구현 | Phase 1~4(v1) + Phase 8~13(v3 재설계) 완료. Phase 5~7(v3 로드맵 초안)은 미착수 |
 
 ---
 
 ## 운용 참고
 
-- 전체 Phase 1~4 구현 완료. Windows 작업 스케줄러 등록 후 운용 가능.
-- `config.py` 조건 수정 후 재실행하면 바뀐 조건 즉시 반영.
+- 전체 Phase 1~4·8~13 구현 완료. Windows 작업 스케줄러 무인 실행은 v3에서 폐기 —
+  `python jobfind.py <command>`를 사용자가 직접 실행한다 (`README.md` 참고).
+- `config.ini` 조건 수정 후 재실행하면 바뀐 조건 즉시 반영.
