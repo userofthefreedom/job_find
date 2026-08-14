@@ -1,0 +1,50 @@
+from __future__ import annotations
+import argparse
+import sys
+from datetime import datetime
+
+from jobfind.dedup import fetch_all
+from jobfind.filters import filter_jobs
+from jobfind.storage import (
+    ensure_output_dir,
+    load_active_ids,
+    load_dismissed_ids,
+    process_x_markers,
+    write_jobs,
+)
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
+JOBS_PATH = "output/jobs_all.txt"
+DISMISSED_PATH = "output/dismissed_ids.txt"
+
+
+def print_summary(total: int, x_removed: int, filtered: int, new: int) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"[{now}] 조회: {total}건 | X 처리: {x_removed}건 | 필터 통과: {filtered}건 | 신규 저장: {new}건")
+
+
+def collect() -> None:
+    ensure_output_dir()
+    x_count = process_x_markers(JOBS_PATH, DISMISSED_PATH)
+    skip_ids = load_active_ids(JOBS_PATH) | load_dismissed_ids(DISMISSED_PATH)
+    jobs = fetch_all()
+    filtered = filter_jobs(jobs)
+    new_jobs = [j for j in filtered if j["id"] not in skip_ids]
+    write_jobs(new_jobs, JOBS_PATH)
+    print_summary(len(jobs), x_count, len(filtered), len(new_jobs))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="jobfind")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("collect", help="사람인+원티드 공고 수집 후 필터링해 저장")
+    args = parser.parse_args()
+
+    if args.command == "collect":
+        collect()
+
+
+if __name__ == "__main__":
+    main()
