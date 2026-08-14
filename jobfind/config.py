@@ -32,6 +32,14 @@ def load_config(path: str) -> SimpleNamespace:
             "relevance", "model", fallback="jhgan/ko-sroberta-multitask"
         ).strip(),
         RELEVANCE_TOP_N=int(top_n_raw) if top_n_raw else 20,
+        PROVIDER_PLANNER=parser.get("providers", "planner", fallback="claude_cli").strip(),
+        PROVIDER_PLAN_EVALUATOR=parser.get(
+            "providers", "plan_evaluator", fallback="claude_cli"
+        ).strip(),
+        PROVIDER_WRITER=parser.get("providers", "writer", fallback="claude_cli").strip(),
+        PROVIDER_DRAFT_EVALUATOR=parser.get(
+            "providers", "draft_evaluator", fallback="claude_cli"
+        ).strip(),
     )
 
 

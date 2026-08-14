@@ -59,3 +59,26 @@ def test_load_config_missing_file_allows_all():
     cfg = load_config("nonexistent_config.ini")
     assert cfg.KEYWORDS == []
     assert cfg.CAREER_TYPE is None
+
+def test_load_config_providers_defaults_to_claude_cli():
+    cfg = load_config("nonexistent_config.ini")
+    assert cfg.PROVIDER_PLANNER == "claude_cli"
+    assert cfg.PROVIDER_PLAN_EVALUATOR == "claude_cli"
+    assert cfg.PROVIDER_WRITER == "claude_cli"
+    assert cfg.PROVIDER_DRAFT_EVALUATOR == "claude_cli"
+
+def test_load_config_providers_reads_ini(tmp_path):
+    ini = tmp_path / "config.ini"
+    ini.write_text(
+        "[providers]\n"
+        "planner = codex_cli\n"
+        "plan_evaluator = api:anthropic\n"
+        "writer = claude_cli\n"
+        "draft_evaluator = api:openai\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(str(ini))
+    assert cfg.PROVIDER_PLANNER == "codex_cli"
+    assert cfg.PROVIDER_PLAN_EVALUATOR == "api:anthropic"
+    assert cfg.PROVIDER_WRITER == "claude_cli"
+    assert cfg.PROVIDER_DRAFT_EVALUATOR == "api:openai"
