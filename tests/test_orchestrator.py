@@ -8,8 +8,11 @@ class _ScriptedProvider:
         self._responses = list(responses)
         self.calls: list[dict] = []
 
-    def run(self, system_prompt, user_prompt, images=None):
-        self.calls.append({"system": system_prompt, "user": user_prompt, "images": images})
+    def run(self, system_prompt, user_prompt, images=None, extra_tools=None):
+        self.calls.append({
+            "system": system_prompt, "user": user_prompt,
+            "images": images, "extra_tools": extra_tools,
+        })
         return self._responses.pop(0)
 
 
@@ -19,6 +22,7 @@ def _setup(monkeypatch, tmp_path, responses, profile_text="프로필 내용"):
     cover_dir = tmp_path / "cover_letters"
     monkeypatch.setattr(orch, "PROFILE_PATH", str(profile_path))
     monkeypatch.setattr(orch, "COVER_LETTERS_DIR", str(cover_dir))
+    monkeypatch.setattr(orch, "fetch_company_profile", lambda name: "")
 
     fake = _ScriptedProvider(responses)
     monkeypatch.setattr(orch, "get_provider", lambda spec: fake)
@@ -90,12 +94,56 @@ def test_run_for_job_missing_profile_uses_empty_string(monkeypatch, tmp_path):
     cover_dir = tmp_path / "cover_letters"
     monkeypatch.setattr(orch, "PROFILE_PATH", str(tmp_path / "nonexistent_profile.md"))
     monkeypatch.setattr(orch, "COVER_LETTERS_DIR", str(cover_dir))
+    monkeypatch.setattr(orch, "fetch_company_profile", lambda name: "")
     fake = _ScriptedProvider(["계획", "OK", "초안", "OK"])
     monkeypatch.setattr(orch, "get_provider", lambda spec: fake)
 
     orch.run_for_job("saramin_1", "공고 텍스트")
 
     assert orch.load_profile() == ""
+
+def test_run_for_job_enriches_job_text_with_company_profile(monkeypatch, tmp_path):
+    fake, _ = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])
+    monkeypatch.setattr(orch, "fetch_company_profile", lambda name: "[DART 기업개황]\n대표자: 홍길동")
+
+    job_text = "[회사]   (주)예시기업\n[제목]   백엔드 개발자"
+    orch.run_for_job("saramin_1", job_text)
+
+    for call in fake.calls:
+        assert "[DART 기업개황]" in call["user"]
+        assert "대표자: 홍길동" in call["user"]
+
+def test_run_for_job_skips_company_profile_when_not_found(monkeypatch, tmp_path):
+    fake, _ = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])
+    monkeypatch.setattr(orch, "fetch_company_profile", lambda name: "")
+
+    job_text = "[회사]   (주)예시기업\n[제목]   백엔드 개발자"
+    orch.run_for_job("saramin_1", job_text)
+
+    for call in fake.calls:
+        assert "[DART 기업개황]" not in call["user"]
+
+def test_run_for_job_grants_research_tools_only_to_planner(monkeypatch, tmp_path):
+    fake, _ = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])
+
+    orch.run_for_job("saramin_1", "공고 텍스트")
+
+    planner_call, plan_eval_call, writer_call, draft_eval_call = fake.calls
+    assert planner_call["extra_tools"] == orch.PLANNER_RESEARCH_TOOLS
+    assert plan_eval_call["extra_tools"] is None
+    assert writer_call["extra_tools"] is None
+    assert draft_eval_call["extra_tools"] is None
+
+def test_run_for_job_grants_research_tools_on_plan_revision_too(monkeypatch, tmp_path):
+    fake, _ = _setup(
+        monkeypatch, tmp_path,
+        responses=["계획 v1", "NEEDS_REVISION\n피드백", "계획 v2", "초안", "OK"],
+    )
+
+    orch.run_for_job("saramin_1", "공고 텍스트")
+
+    revision_call = fake.calls[2]
+    assert revision_call["extra_tools"] == orch.PLANNER_RESEARCH_TOOLS
 
 def test_run_for_job_enriches_job_text_with_fetched_posting(monkeypatch, tmp_path):
     fake, _ = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])

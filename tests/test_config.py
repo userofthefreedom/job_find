@@ -81,4 +81,4 @@ def test_load_config_relevance_defaults(monkeypatch):
     assert cfg.RELEVANCE_ROLES == ""
     assert cfg.RELEVANCE_DOMAINS == ""
     assert cfg.RELEVANCE_TOP_N == 20
-    assert cfg.RELEVANCE_MODEL == "jhgan/ko-sroberta-multitask"
+    assert cfg.RELEVANCE_MODEL == "snunlp/KR-SBERT-V40K-klueNLI-augSTS"

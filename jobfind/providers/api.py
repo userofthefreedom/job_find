@@ -38,7 +38,15 @@ class ApiProvider:
             raise ValueError(f"알 수 없는 api provider입니다: {backend!r}")
         self.backend = backend
 
-    def run(self, system_prompt: str, user_prompt: str, images: list[Path] | None = None) -> str:
+    def run(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        images: list[Path] | None = None,
+        extra_tools: list[str] | None = None,
+    ) -> str:
+        # extra_tools(예: WebSearch)는 직접 API 호출에 대응하는 서버사이드 도구 연동이
+        # 없어 지금은 무시한다 — 인터페이스 호환을 위해 인자만 받는다.
         images = images or []
         if self.backend == "anthropic":
             return self._run_anthropic(system_prompt, user_prompt, images)

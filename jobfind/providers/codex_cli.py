@@ -13,7 +13,15 @@ class CodexCliProvider:
     재확인하고 필요하면 이 파일을 맞춰 수정해야 한다.
     """
 
-    def run(self, system_prompt: str, user_prompt: str, images: list[Path] | None = None) -> str:
+    def run(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        images: list[Path] | None = None,
+        extra_tools: list[str] | None = None,
+    ) -> str:
+        # extra_tools(예: WebSearch 허용)는 codex CLI의 실제 툴 제어 플래그를 검증하지
+        # 못해 지금은 반영하지 않는다 — 인터페이스 호환을 위해 인자만 받고 무시한다.
         images = images or []
         cwd = str(images[0].parent) if images else tempfile.gettempdir()
         prompt = f"{system_prompt}\n\n{user_prompt}"

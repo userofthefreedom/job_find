@@ -29,7 +29,7 @@ def load_config() -> SimpleNamespace:
         RELEVANCE_ROLES=os.environ.get("RELEVANCE_ROLES", "").strip(),
         RELEVANCE_DOMAINS=os.environ.get("RELEVANCE_DOMAINS", "").strip(),
         RELEVANCE_MODEL=os.environ.get(
-            "RELEVANCE_MODEL", "jhgan/ko-sroberta-multitask"
+            "RELEVANCE_MODEL", "snunlp/KR-SBERT-V40K-klueNLI-augSTS"
         ).strip(),
         RELEVANCE_TOP_N=int(top_n_raw) if top_n_raw else 20,
         PROVIDER_PLANNER=os.environ.get("PROVIDER_PLANNER", "claude_cli").strip(),

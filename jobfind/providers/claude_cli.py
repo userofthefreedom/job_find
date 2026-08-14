@@ -13,24 +13,31 @@ class ClaudeCliProvider:
     잡아 이 프로젝트의 CLAUDE.md·코드가 우연히 프롬프트에 섞여 들어가지 않게 한다.
     """
 
-    def run(self, system_prompt: str, user_prompt: str, images: list[Path] | None = None) -> str:
+    def run(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        images: list[Path] | None = None,
+        extra_tools: list[str] | None = None,
+    ) -> str:
         images = images or []
+        extra_tools = extra_tools or []
         cwd = str(images[0].parent) if images else tempfile.gettempdir()
         prompt = user_prompt
-        allowed_tools = ""
+        allowed = list(extra_tools)
         if images:
             names = "\n".join(f"- {img.name}" for img in images)
             prompt += f"\n\n다음 이미지 파일을 Read 툴로 읽고 참고하라 (현재 작업 폴더 기준 경로):\n{names}"
-            allowed_tools = "Read"
+            allowed.append("Read")
 
         cmd = [
             "claude", "-p", prompt,
             "--append-system-prompt", system_prompt,
             "--output-format", "json",
-            "--allowedTools", allowed_tools,
+            "--allowedTools", " ".join(allowed),
         ]
         result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", timeout=180, cwd=cwd,
+            cmd, capture_output=True, text=True, encoding="utf-8", timeout=300, cwd=cwd,
         )
         if result.returncode != 0:
             raise RuntimeError(f"claude CLI 실행 실패: {result.stderr.strip()}")

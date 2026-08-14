@@ -425,6 +425,102 @@ provider·API 키 전체 항목을 문서화해 템플릿으로 남겼다.
 
 ---
 
+## Phase 15 — 모델/리서치 고도화 ✅ (2026-08-14 완료)
+
+**배경**: Phase 14 실사용 검증 이후 사용자가 다시 세 가지 개선을 요청했다: (1) 공고 수집
+자체가 부정확하면 이후 단계가 다 무의미하니 관련성 평가 모델을 재검토/교체, (2) 자소서
+작성이 실제 자소서 문항을 반영할 수 있는 방안 검토(자소설닷컴처럼 문항을 직접 제공하는
+경로로 바꾸는 것도 검토), (3) 자소서 작성에서 가장 힘든 "기업·직무·문항에 맞춘 자료 조사"
+자체를 자동화할 방안(뉴스·기업 홈페이지·DART 사업보고서 등) 검토. `AskUserQuestion`으로
+방향을 좁힌 결과: 자소설닷컴 연동은 보류(직접 복사·붙여넣기 유지), DART 연동과 planner
+웹 검색 허용은 둘 다 진행하기로 확정됐다.
+
+### 1. 관련성 임베딩 모델 교체
+
+Phase 14에서 이미 "곱셈 결합으로 바꿔도 모델 자체의 도메인 판별력이 약해 한계가 남는다"고
+실측으로 확인해둔 문제를 이번에 정면으로 다뤘다.
+
+- 실제 수집된 공고 제목 텍스트로 여러 모델의 domain_score 분포를 직접 계산해 비교했다
+  (모델 카드 설명이 아니라 실측 기준).
+  - `jhgan/ko-sroberta-multitask`(기존): 도메인 점수가 0.4~0.5대로 좁게 몰림 — 사무행정
+    공고와 실제 IT PM 공고를 구분하지 못함.
+  - `intfloat/multilingual-e5-base`: 처음엔 `"query: "`/`"passage: "` prefix 없이 테스트해
+    불공정하게 낮은 점수가 나왔음을 인지하고, prefix를 올바르게 적용해 재측정 — 그래도
+    도메인 점수 spread가 0.042로 더 나빴다. 일반적으로 평가가 좋은 모델이어도 이 짧은
+    한국어 텍스트 도메인 분류 용도에는 안 맞는다는 것을 실측으로 확인 후 기각.
+  - `snunlp/KR-SBERT-V40K-klueNLI-augSTS`(신규 채택): 실측 기준 기존 대비 약 3배 개선된
+    도메인 점수 spread.
+- `jobfind/config.py`의 `RELEVANCE_MODEL` 기본값, `.env`/`.env.example`을 교체.
+- **정직하게 남긴 한계**: 이 교체는 "기존보다 개선"이지 "완벽한 도메인 판별"이 아니다.
+  짧은 공고 제목만으로는 어떤 사전학습 임베딩 모델도 완벽을 보장하지 않는다는 점은
+  `docs/SPEC.md` §11-3에 이미 있는 실측 한계 서술과 여전히 함께 유효하다.
+
+### 2. 자소설닷컴 연동 조사 및 보류
+
+- `C:\Users\SSAFY\Pictures\Screenshots`의 `sosal` 스크린샷을 참고해 자소설닷컴이 자소서
+  문항을 직접 노출하는 방식을 조사했다: 정적 fetch, `__NEXT_DATA__` JSON 파싱, Next.js
+  `_next/data` SSR 엔드포인트 추정, REST API 패턴 추정을 모두 시도했으나 완전한 답을 얻지
+  못했다. 실제 API 구조를 확인하려면 라이브 브라우저 네트워크 검사가 필요한데, 이 환경에서는
+  `mcp__claude-in-chrome` 확장이 연결되지 않아("Browser extension is not connected.")
+  완료하지 못했다.
+- 기술적 한계 외에 정책적 고려도 있다 — 자소설닷컴은 채용 공고 자체가 아니라 그 사이트가
+  직접 정리·큐레이션한 부가 콘텐츠(자소서 문항)를 제공한다. 공개 채용 공고를 모으는 것과
+  제3자가 가공한 콘텐츠를 스크래핑하는 것은 성격이 다르다고 판단해, 기술 문제와 별개로도
+  신중히 접근할 사안으로 사용자에게 그대로 제시했다.
+- `AskUserQuestion`으로 사용자에게 확인한 결과: "보류 — 지금처럼 직접 복사·붙여넣기" 선택.
+  자소서 문항은 계속 `output/cover_letters/<공고ID>/materials/notes.md`에 사용자가 직접
+  옮겨 적어 계획 단계에서 참고하는 기존 방식을 유지한다.
+
+### 3. 기업 리서치 자동화 — DART 연동 + planner 웹 검색
+
+**DART(전자공시시스템) 오픈API 연동** (`jobfind/dart.py`, 신설)
+
+- DART OpenAPI를 WebFetch/WebSearch로 조사해 실제 엔드포인트 형태를 확인: `corpCode.xml`
+  (전체 상장기업 목록, ZIP+XML — 회사명으로 검색하려면 먼저 이 목록에서 corp_code를
+  찾아야 함)과 `company.json`(corp_code로 조회하는 기업 개황 — 대표자·설립일·시장구분·
+  주소·홈페이지 등).
+- `fetch_company_profile(company_name)`: `.env`의 `DART_API_KEY`가 없거나 회사명이 비어
+  있으면 즉시 빈 문자열 반환. 있으면 `corpCode.xml`을 내려받아(7일 캐시,
+  `output/.dart_corp_codes.json`) "(주)"/"㈜"/"주식회사" 등 법인 표기를 정규화한 뒤 정확히
+  일치하는 회사명을 찾고, 찾으면 `company.json`으로 개황을 조회해 텍스트로 포맷한다.
+- 못 찾거나 조회 실패(상태 코드 `!= "000"`, 네트워크 오류 등)는 전부 빈 문자열 반환으로
+  처리한다 — 비상장 스타트업처럼 DART에 없는 회사가 훨씬 많으므로, "실패"가 아니라
+  "정상적으로 해당 없음"으로 취급해 파이프라인을 막지 않는다.
+- `orchestrator.run_for_job()`에서 `fetch_posting_text()` 보강 다음에 `job_text`에
+  이어붙인다 (`docs/SPEC.md` §13-1, §13-5).
+- **미검증 사항(정직하게 기록)**: 이 프로젝트를 만든 환경에 실제 `DART_API_KEY`가 없어
+  `tests/test_dart.py`의 12개 테스트는 전부 `requests.get`/`_load_corp_codes`를 모킹한
+  단위 테스트다. 실제 키로 검증되지 않았다는 점을 README/SPEC/PRD에 명시했다.
+
+**planner의 웹 검색·웹 조회 허용**
+
+- `Provider.run()` 프로토콜에 `extra_tools: list[str] | None = None` 파라미터를 추가.
+  `claude_cli`에서만 실제로 `--allowedTools`에 반영되고(이미지로 인한 `Read`와 결합될 수
+  있음, 순서는 `extra_tools` 먼저 + `Read` 나중), `codex_cli`/`api:*`는 인자만 받고 무시한다
+  (실제 대응하는 서버사이드 도구 제어 수단이 없음).
+- `orchestrator.py`에 `PLANNER_RESEARCH_TOOLS = ["WebSearch", "WebFetch"]`를 정의하고
+  planner 호출(초안 계획 + 재작성 계획)에만 전달, plan_evaluator/writer/draft_evaluator는
+  그대로 `None`.
+- `prompts.planner_prompt()`/`planner_revision_prompt()`의 시스템 프롬프트에 "웹 검색·웹
+  조회 도구를 쓸 수 있다면 회사 최근 뉴스·홈페이지·업계 동향을 실제로 검색해 계획에
+  구체적으로 반영하라 — 도구가 없거나 검색이 실패해도 계획 수립 자체를 멈추지 말라"는
+  지시를 추가.
+- **실제 검증**: mock이 아니라 실제 `claude -p --allowedTools "WebSearch"` 호출로 검증
+  완료 — 응답 JSON의 `webSearchRequests: 1` 필드로 실제 검색이 일어났음을 확인했고, 검색을
+  포함한 호출의 비용이 미포함 대비 약 1.5~2배(실측: $0.133 vs 평소 $0.06~0.09대)로 늘어남을
+  측정해 README §8(비용)에 반영했다.
+
+### 검증
+
+- 161개 테스트 전부 통과 (관련성 모델 기본값 변경, `jobfind/dart.py` 12개 신규 테스트,
+  provider `extra_tools` 관련 신규 테스트, orchestrator의 기업 개황 보강/웹 검색 도구 부여
+  회귀 테스트 포함).
+- 관련성 모델 교체는 실제 `evaluate` 실행으로 검증(`jobs_all.txt` 백업 후 재실행, 결과
+  대조 후 원본 복원). planner 웹 검색 허용은 실제 `claude -p` 호출로 검증. DART 연동은 실제
+  API 키가 없어 모킹으로만 검증 — 위에 명시한 대로 미검증 상태를 그대로 남긴다.
+
+---
+
 ## 파일 생성 순서 요약
 
 | Phase | 생성 / 수정 파일 |
@@ -443,6 +539,7 @@ provider·API 키 전체 항목을 문서화해 템플릿으로 남겼다.
 | 12 | `jobfind/pipeline/`, `profile.md.example`, `.gitignore` |
 | 13 | `CLAUDE.md`, `README.md`, `docs/PRD.md`, `docs/SPEC.md`, `docs/PLAN.md`(이 문서) |
 | 14 | `jobfind/config.py`(env 기반 재작성), `.env`/`.env.example`, `config.ini`(삭제), `jobfind/relevance.py`(곱셈 결합 + [자소서] 보호), `jobfind/pipeline/prompts.py`(writer 지시 보강), 문서 전체 |
+| 15 | `jobfind/config.py`(RELEVANCE_MODEL 기본값 교체), `jobfind/dart.py`(신설), `jobfind/providers/{base,claude_cli,codex_cli,api}.py`(extra_tools 추가), `jobfind/pipeline/orchestrator.py`(company_profile 보강 + PLANNER_RESEARCH_TOOLS), `jobfind/pipeline/prompts.py`(planner 웹 검색 지시), `.env`/`.env.example`(RELEVANCE_MODEL·DART_API_KEY), `tests/test_dart.py`(신설), 문서 전체 |
 
 > Phase 1은 원래 `config.py`로 시작했으나, v2에서 `config.ini`(INI, `configparser` 기반)로 전환됨 — 자세한 내용은 `docs/SPEC.md` 변경 이력 참고.
 
@@ -465,3 +562,4 @@ provider·API 키 전체 항목을 문서화해 템플릿으로 남겼다.
 | 2026-07-10 | v3 로드맵 초안 추가 — Phase 5(안정성/신뢰성) · Phase 6(필터/매칭 고도화) · Phase 7(지원 상태 추적) 계획 수립(구현 미착수); "미구현 (Phase 2 이후 검토)" 항목을 Phase 5~7로 흡수·대체 |
 | 2026-08-14 | v3 재설계 착수 — "찾는 과정 발전 + 자소서 초안 작성"으로 범위 확장, Phase 5~7 로드맵 초안 대신 Phase 8~13으로 신규 계획·전부 구현 완료(패키지 재구조화, 관련성 랭킹, 수동추가/자소서 선택, provider 추상화, 자소서 파이프라인, 문서 정리). 세부 내용은 위 Phase 8~13 섹션 참고 |
 | 2026-08-14 | Phase 14 추가 — 실사용(진짜 이력서·실제 공고 4건 end-to-end 실행) 피드백 3건 반영: config.ini→.env 통합, 관련성 결합식 합→곱 수정(+ 임베딩 모델 도메인 판별력 한계 실측 확인), writer 초안 작성 거부 방지. 세부 내용은 위 Phase 14 섹션 참고 |
+| 2026-08-14 | Phase 15 추가 — 모델/리서치 고도화 3건 반영: 관련성 임베딩 모델을 실측 비교로 교체(jhgan → snunlp, 도메인 판별력 약 3배 개선), 자소설닷컴 연동 조사 후 기술적+정책적 이유로 보류, DART 오픈API 연동 신설(상장기업 개황 자동 조회, 실키 미검증) + planner에 WebSearch/WebFetch 허용(실제 호출로 검증, 비용 약 1.5~2배). 세부 내용은 위 Phase 15 섹션 참고 |

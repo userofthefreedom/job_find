@@ -1,6 +1,6 @@
 # SPEC — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-14 (Phase 14 실사용 피드백 반영) | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-14 (Phase 15 모델/리서치 고도화 반영) | 기반 문서: PRD.md_
 
 ---
 
@@ -550,7 +550,9 @@ sentence-transformers==5.7.0        # 관련성 평가용 한국어 임베딩 �
 
 HTML 파서는 표준 라이브러리 `html.parser`를 사용한다 (별도 설치 불필요).
 `sentence-transformers`는 `torch`를 전이 의존성으로 함께 설치하며, 최초 실행 시 모델
-가중치(`jhgan/ko-sroberta-multitask`, 수백 MB)를 자동 다운로드한다.
+가중치(`snunlp/KR-SBERT-V40K-klueNLI-augSTS`, 수백 MB)를 자동 다운로드한다 (Phase 15에서
+`jhgan/ko-sroberta-multitask`에서 교체 — §11-2 참고). DART 연동(§13-5)은 새 의존성 없이
+표준 라이브러리(`zipfile`, `xml.etree`) + 기존 `requests`만 사용한다.
 
 ---
 
@@ -573,7 +575,7 @@ FILTER_EXCLUDE_KEYWORDS=교육생, 무료교육, 설명회, 상시채용
 RELEVANCE_ROLES=
 RELEVANCE_DOMAINS=
 RELEVANCE_TOP_N=20
-RELEVANCE_MODEL=jhgan/ko-sroberta-multitask
+RELEVANCE_MODEL=snunlp/KR-SBERT-V40K-klueNLI-augSTS
 
 PROVIDER_PLANNER=claude_cli
 PROVIDER_PLAN_EVALUATOR=claude_cli
@@ -583,6 +585,9 @@ PROVIDER_DRAFT_EVALUATOR=claude_cli
 # api:anthropic / api:openai 백엔드를 쓸 때만 필요:
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
+
+# DART(전자공시시스템) 오픈API — 상장기업 개황 자동 조회용, 선택 (§13-5):
+DART_API_KEY=
 
 # 사람인 공식 API 승인 시:
 SARAMIN_ACCESS_KEY=
@@ -608,7 +613,7 @@ API 키(`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`SARAMIN_ACCESS_KEY`) 값은 사용
 RELEVANCE_ROLES=기획, PM        # 직무 — 비워두면 이 축은 0점 처리
 RELEVANCE_DOMAINS=커머스, 게임  # 도메인/업종 — 비워두면 이 축은 0점 처리
 RELEVANCE_TOP_N=20               # 상위 몇 건만 jobs_all.txt에 남길지
-RELEVANCE_MODEL=jhgan/ko-sroberta-multitask
+RELEVANCE_MODEL=snunlp/KR-SBERT-V40K-klueNLI-augSTS   # Phase 15 교체 (아래 11-3-1 참고)
 ```
 
 `RELEVANCE_ROLES`와 `RELEVANCE_DOMAINS`가 둘 다 비어 있으면 관련성 평가 단계 전체를
@@ -645,6 +650,24 @@ def rank_jobs(job_texts: list[str]) -> list[float]:
 > 않음을 확인했다. 다른 임베딩 모델 시도나 `job_text`에 회사명을 포함시키는 방안은 향후 검토
 > 과제로 남긴다 (`docs/PLAN.md` Phase 14 참고).
 
+### 11-3-1. 모델 교체 (Phase 15)
+
+`jhgan/ko-sroberta-multitask`에서 `snunlp/KR-SBERT-V40K-klueNLI-augSTS`로 기본값을
+교체했다. 11-3의 "실측 한계"에서 기록한 도메인 판별력 문제를 해결하기 위해 실제 수집된
+공고 제목으로 두 모델의 domain_score 분포를 직접 비교했다:
+
+| 모델 | 도메인 점수 분포(spread) | 비고 |
+|---|---|---|
+| `jhgan/ko-sroberta-multitask` (기존) | 좁음 (0.4~0.5대로 몰림) | IT/사무행정 구분 실패 사례 다수 |
+| `intfloat/multilingual-e5-base` | 0.042 (더 나쁨) | `"query: "`/`"passage: "` prefix 규칙 적용 후 재측정해도 이 짧은 텍스트 도메인 분류
+용도에는 부적합 |
+| `snunlp/KR-SBERT-V40K-klueNLI-augSTS` (신규 기본값) | 약 3배 개선된 spread | 실측 기준 채택 |
+
+모델 카드 설명이 아니라 실제 프로덕션 공고 제목 텍스트로 직접 측정해 결정했다. 다만 이는
+"기존 대비 개선"이지 "완벽한 도메인 판별"이 아니다 — 11-3의 실측 한계 서술 자체는 여전히
+유효하며, 짧은 공고 제목만으로는 어떤 사전학습 임베딩 모델도 완벽한 도메인 구분을 보장하지
+않는다.
+
 ### 11-4. 적용 (`evaluate_relevance()`)
 
 ```
@@ -669,8 +692,8 @@ evaluate_relevance(jobs_path):
 
 ### 11-5. 파인튜닝에 대해
 
-사전학습 모델(`jhgan/ko-sroberta-multitask`)만 그대로 사용한다. 파인튜닝은 라벨 데이터가
-없어 범위 밖이다 — `[X]` 마커로 걸러낸 이력이 쌓이면 이후 파인튜닝 데이터로 활용할 수 있다는
+사전학습 모델(`snunlp/KR-SBERT-V40K-klueNLI-augSTS`, §11-3-1)만 그대로 사용한다. 파인튜닝은
+라벨 데이터가 없어 범위 밖이다 — `[X]` 마커로 걸러낸 이력이 쌓이면 이후 파인튜닝 데이터로 활용할 수 있다는
 점만 기록해둔다 (착수 시점 미정). 11-3의 실측 한계도 파인튜닝으로 개선될 가능성이 있는
 영역이다.
 
@@ -683,7 +706,8 @@ evaluate_relevance(jobs_path):
 ```python
 class Provider(Protocol):
     def run(self, system_prompt: str, user_prompt: str,
-            images: list[Path] | None = None) -> str: ...
+            images: list[Path] | None = None,
+            extra_tools: list[str] | None = None) -> str: ...
 
 
 def get_provider(spec: str) -> Provider:
@@ -693,6 +717,11 @@ def get_provider(spec: str) -> Provider:
 
 호출마다 독립된 subprocess/API 요청이라 이전 호출과 대화 맥락을 공유하지 않는다 — 자소서
 파이프라인(§13)의 "격리된 평가"를 이 특성으로 보장한다.
+
+`extra_tools`(Phase 15 추가)는 `claude_cli`에서만 실제로 동작하는 선택적 힌트다. 예:
+`["WebSearch", "WebFetch"]`를 넘기면 `--allowedTools`에 그대로 합쳐져 회사 리서치를
+허용한다 (§13-1). `codex_cli`/`api:*`는 이 값을 인자로만 받고 무시한다 — 대응하는 실제
+툴 제어 수단이 없기 때문이다.
 
 ### 12-2. `claude_cli`
 
@@ -709,6 +738,9 @@ subprocess.run(["claude", "-p", user_prompt,
   파일명을 안내해 Read 툴로 읽도록 지시한다.
 - `images`가 없으면 `cwd`를 임시 폴더로 잡고 `--allowedTools ""`로 모든 툴을 차단한다 —
   이 프로젝트의 CLAUDE.md 등 무관한 컨텍스트가 우연히 섞이는 것도 방지한다.
+- `extra_tools`가 있으면 `--allowedTools` 값에 공백으로 이어붙인다(`images`로 추가된
+  `Read`와도 함께 결합됨, 예: `"WebSearch Read"`). planner 역할에서만 실제로 사용한다
+  (§13-1).
 - 응답은 `--output-format json`의 `result` 필드에서 추출한다. `is_error: true`거나
   `returncode != 0`이면 `RuntimeError`를 발생시킨다.
 - 실제 `claude -p` 호출로 텍스트 전용/이미지 포함 양쪽 다 검증 완료 (Phase 11 기록 참고).
@@ -736,11 +768,16 @@ base64로 인코딩해 API의 image content block(Anthropic) / image_url(OpenAI)
 posting_text = fetch_posting_text(공고 링크)   → §13-3
 job_text += "[공고 상세 설명]\n" + posting_text  (있을 때만)
 
-plan = planner.run(planner_prompt(job_text, profile, materials_dir), images=자소서 이미지)
+company_profile = fetch_company_profile(회사명)   → §13-5
+job_text += "\n\n" + company_profile  (DART에서 찾은 경우만)
+
+plan = planner.run(planner_prompt(job_text, profile, materials_dir), images=자소서 이미지,
+                    extra_tools=["WebSearch", "WebFetch"])
 plan_review = plan_evaluator.run(plan_evaluator_prompt(job_text, plan))
 
 if plan_review 가 "NEEDS_REVISION"으로 시작:
-    plan = planner.run(planner_revision_prompt(..., plan, plan_review), images=자소서 이미지)
+    plan = planner.run(planner_revision_prompt(..., plan, plan_review), images=자소서 이미지,
+                        extra_tools=["WebSearch", "WebFetch"])
 
 draft = writer.run(writer_prompt(job_text, profile, plan))
 draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
@@ -751,6 +788,8 @@ draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
 - `job_text`는 `jobs_all.txt`의 원본 블록 텍스트를 그대로 쓴다 (별도 구조화 파싱 없음).
 - `plan_evaluator`/`draft_evaluator`는 `profile.md`나 이미지를 받지 않는다 — 평가 대상
   산출물과 공고 정보만으로 판단하게 해 "필요한 것만 최소 주입"한다.
+- 웹 검색 도구(`extra_tools`)는 `planner`(및 계획 재작성)에만 준다 — 평가/작성 단계는
+  이미 계획에 흡수된 정보로 충분하다는 §13-4 이미지 전달 원칙과 동일한 논리다.
 - 초안 평가 이후 자동 재작성 루프는 없다. 평가 의견은 `draft_review.md`로 그대로 남기고,
   재작성이 필요하면 사용자가 다시 `write`를 실행하도록 한다 (설계 원칙, `docs/PLAN.md`
   Phase 12 참고).
@@ -786,6 +825,42 @@ draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
 흡수하므로 이후 단계(평가/작성)는 원본 이미지가 다시 필요하지 않다. 같은 폴더의 `notes.md`가
 있으면 텍스트로 프롬프트에 포함한다.
 
+### 13-5. 기업 개황 보강 (`jobfind/dart.py`, Phase 15)
+
+DART(전자공시시스템) 오픈API로 지원 기업이 상장기업이면 대표자·설립일·시장구분·홈페이지 등
+개황을 자동으로 가져와 `job_text`에 얹는다 (§13-1).
+
+```
+fetch_company_profile(company_name):
+  1. DART_API_KEY 없거나 company_name 비어있으면 "" 반환
+  2. corpCode.xml(전체 기업 목록, ZIP+XML)을 내려받아 회사명 → corp_code 매핑을 만들고
+     output/.dart_corp_codes.json에 7일 캐시
+  3. "(주)"/"㈜"/"주식회사" 등 법인 표기를 정규화한 뒤 정확히 일치하는 회사명을 찾는다
+  4. 못 찾거나 company.json 조회에 실패하거나 status != "000"이면 "" 반환
+  5. 성공하면 "[DART 기업개황]" 헤더 + 대표자/설립일/시장구분/주소/홈페이지를 텍스트로 반환
+```
+
+- 비상장 스타트업 등 DART에 없는 회사가 훨씬 많으므로, 조회 실패는 예외가 아니라 정상
+  경로로 취급하고 항상 빈 문자열로 조용히 넘어간다 — 파이프라인을 막지 않는다.
+- 무료, 가입 즉시 발급되는 키를 쓴다 (`.env`의 `DART_API_KEY`, §9).
+- **실제 API 키로 검증되지 않았다** — 이 프로젝트를 만든 환경에 발급받은 키가 없어
+  `tests/test_dart.py`의 12개 테스트는 전부 `requests.get`/`_load_corp_codes`를 모킹한
+  단위 테스트다. 실사용 중 필드명이나 응답 형식이 다르면 조정이 필요할 수 있다.
+
+### 13-6. planner의 웹 검색 (Phase 15)
+
+planner 시스템 프롬프트(`prompts.planner_prompt`/`planner_revision_prompt`)에 "웹 검색·웹
+조회 도구를 쓸 수 있다면 회사 최근 뉴스·홈페이지·업계 동향을 검색해 계획에 반영하라"는
+지시를 추가하고, `orchestrator.py`의 `PLANNER_RESEARCH_TOOLS = ["WebSearch", "WebFetch"]`를
+planner 호출(초안 계획 + 재작성 계획)에만 `extra_tools`로 전달한다. 목적은 "이 회사에 관심이
+많습니다" 식의 진부한 지원동기 대신, 실제 최근 소식을 반영한 구체적인 내용을 계획에 담는
+것이다. 도구가 없거나(codex_cli/api:*) 검색이 실패해도 계획 수립 자체는 멈추지 않도록 프롬프트에
+명시했다.
+
+실제 `claude -p --allowedTools "WebSearch"` 호출로 검증 완료 — 응답의 `webSearchRequests: 1`
+필드로 실제 검색이 일어났음을 확인했고, 검색을 포함한 호출의 비용이 미포함 대비 약 1.5~2배로
+측정됐다(실측: $0.133 vs 평소 $0.06~0.09대).
+
 ---
 
 ## 14. 변경 이력
@@ -800,3 +875,4 @@ draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
 | 2026-07-10 | 실 데이터 검증에서 발견된 필터 오탐/누락 수정: (1) 키워드 태그 매칭을 부분 문자열 → 완전 일치로 변경(짧은 키워드가 무관한 복합 태그에 우연히 걸리는 문제 해결), (2) 경력 유형 필터에 동등 표현 허용(`_CAREER_EQUIVALENTS`) 추가 — "신입·경력"이 "신입"/"경력"/"경력무관"/구체적 연차 표기도 포함하도록 개선, (3) 원티드 시/도 단위 지역 한계를 config.ini 문서화(예: "경기" 추가 안내) |
 | 2026-08-14 | v3 재설계(Phase 8~13): `fetch_jobs.py` 단일 스크립트 → `jobfind/` 패키지 전환; 관련성 평가를 role_description+threshold 이진 필터에서 roles/domains 결합 랭킹(top_n)으로 재설계; `jobfind.py add`(수동 추가)·`select`(`[자소서]` 마커, materials/)·`write`(자소서 파이프라인) 커맨드 추가; AI provider 추상화(`claude_cli`/`codex_cli`/`api:anthropic`/`api:openai`) 추가; 자소서 계획→계획평가→(재작성)→작성→초안평가 파이프라인 추가; 원티드 상세 API 기반 공고 설명 보강 추가(사람인은 JS 렌더링 한계로 미적용) |
 | 2026-08-14 | Phase 14(실사용 피드백): `config.ini` → `.env` 통합(필터·관련성·provider 설정 전부); 관련성 결합식을 합산 → 곱셈으로 변경(roles/domains 둘 다 설정 시) — 직무 쪽 문자열만 우연히 겹치고 도메인은 무관한 공고가 상위에 오르는 문제 완화, 다만 임베딩 모델 자체의 도메인 판별력 한계는 남아 있음을 실측으로 확인; `evaluate_relevance()`가 `[자소서]` 선택 공고를 랭킹 대상에서 제외하고 항상 보존하도록 수정(순위 밖으로 밀려 파일에서 사라지던 문제); `writer_prompt`에 "정보 부족해도 초안 작성 거부 금지" 지시 추가 |
+| 2026-08-14 | Phase 15(모델/리서치 고도화): 관련성 임베딩 모델을 `jhgan/ko-sroberta-multitask` → `snunlp/KR-SBERT-V40K-klueNLI-augSTS`로 교체 — 실제 공고 제목으로 도메인 점수 분포를 직접 비교해 약 3배 개선된 모델을 채택(`intfloat/multilingual-e5-base`는 prefix 규칙 적용 후에도 이 용도에 더 부적합함을 확인 후 기각); DART 오픈API 연동 추가(`jobfind/dart.py`, §13-5) — 상장기업 개황을 자동 조회해 `job_text`에 보강(실제 API 키로는 미검증, 모킹 테스트만 통과); `Provider.run()`에 `extra_tools` 파라미터 추가, planner 호출에 `["WebSearch", "WebFetch"]`를 부여해 회사 리서치를 스스로 검색하도록 허용(§13-6, 실제 호출로 검증 완료 — 비용은 미포함 대비 약 1.5~2배); 자소서 문항을 직접 제공하는 자소설닷컴류 사이트 연동은 기술적 한계(정적 스크래핑 불가, 브라우저 확장 미연결) + 정책적 고려(제3자 큐레이션 콘텐츠)로 보류 결정 |

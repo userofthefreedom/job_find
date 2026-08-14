@@ -5,6 +5,7 @@ from pathlib import Path
 
 from jobfind.collectors.wanted import fetch_wanted_description
 from jobfind.config import config
+from jobfind.dart import fetch_company_profile
 from jobfind.pipeline import prompts
 from jobfind.providers.base import get_provider
 from jobfind.storage import extract_field
@@ -12,6 +13,9 @@ from jobfind.storage import extract_field
 COVER_LETTERS_DIR = "output/cover_letters"
 PROFILE_PATH = "profile.md"
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+# planner가 회사 리서치(뉴스·홈페이지)를 스스로 검색해 계획에 반영할 수 있게 열어주는 툴.
+# claude_cli에서만 실제로 동작한다 — codex_cli/api:*는 --allowedTools 개념이 없어 무시된다.
+PLANNER_RESEARCH_TOOLS = ["WebSearch", "WebFetch"]
 
 
 def fetch_posting_text(url: str) -> str:
@@ -69,13 +73,17 @@ def run_for_job(job_id: str, job_text: str) -> dict:
     if posting_text:
         job_text = f"{job_text}\n\n[공고 상세 설명]\n{posting_text}"
 
+    company_profile = fetch_company_profile(extract_field(job_text, "[회사]"))
+    if company_profile:
+        job_text = f"{job_text}\n\n{company_profile}"
+
     planner = get_provider(config.PROVIDER_PLANNER)
     plan_evaluator = get_provider(config.PROVIDER_PLAN_EVALUATOR)
     writer = get_provider(config.PROVIDER_WRITER)
     draft_evaluator = get_provider(config.PROVIDER_DRAFT_EVALUATOR)
 
     system, user = prompts.planner_prompt(job_text, profile, materials_dir)
-    plan = planner.run(system, user, images=images)
+    plan = planner.run(system, user, images=images, extra_tools=PLANNER_RESEARCH_TOOLS)
     _save(job_id, "plan.md", plan)
 
     system, user = prompts.plan_evaluator_prompt(job_text, plan)
@@ -86,7 +94,7 @@ def run_for_job(job_id: str, job_text: str) -> dict:
         system, user = prompts.planner_revision_prompt(
             job_text, profile, materials_dir, plan, plan_review
         )
-        plan = planner.run(system, user, images=images)
+        plan = planner.run(system, user, images=images, extra_tools=PLANNER_RESEARCH_TOOLS)
         _save(job_id, "plan.md", plan)
 
     system, user = prompts.writer_prompt(job_text, profile, plan)

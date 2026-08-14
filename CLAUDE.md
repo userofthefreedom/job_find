@@ -26,14 +26,21 @@
   - 원티드 비공식 API (`https://www.wanted.co.kr/api/v4/jobs`, 상세는 `/api/v4/jobs/<id>`)
   - HTTP 통신: `requests`
 - **관련성 평가**: `sentence-transformers` + 사전학습 한국어 문장 임베딩 모델
-  (`jhgan/ko-sroberta-multitask`, 최초 실행 시 자동 다운로드). 파인튜닝은 하지 않음 —
-  자세한 배경은 `docs/PLAN.md` Phase 9 참고
+  (`snunlp/KR-SBERT-V40K-klueNLI-augSTS`, 최초 실행 시 자동 다운로드). 파인튜닝은 하지 않음 —
+  자세한 배경은 `docs/PLAN.md` Phase 9·15 참고 (원래 `jhgan/ko-sroberta-multitask`였으나
+  Phase 15에서 실측 비교 후 도메인 판별력이 더 나은 이 모델로 교체)
 - **AI provider**: `jobfind/providers/`에 4개 백엔드
-  - `claude_cli`: `claude -p` subprocess 헤드리스 호출 (이미 로그인된 세션 사용, API 키 불필요)
+  - `claude_cli`: `claude -p` subprocess 헤드리스 호출 (이미 로그인된 세션 사용, API 키 불필요).
+    자소서 계획(planner) 단계에는 `--allowedTools`로 `WebSearch`/`WebFetch`를 열어줘 회사
+    뉴스·홈페이지를 직접 검색하게 한다 (Phase 15, 호출당 비용/시간 증가 트레이드오프 있음)
   - `codex_cli`: `codex exec` subprocess 헤드리스 호출 (실제 플래그 미검증 — `docs/PLAN.md`
-    Phase 11 리스크 참고)
+    Phase 11 리스크 참고). extra_tools(WebSearch 등)는 인터페이스 호환을 위해 받되 무시함
   - `api:anthropic` / `api:openai`: `requests`로 Messages/Chat Completions API 직접 호출
-    (`.env`의 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 사용, 호출당 과금)
+    (`.env`의 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 사용, 호출당 과금). extra_tools는 대응하는
+    서버사이드 툴 연동이 없어 무시함
+- **DART(전자공시) 연동**: `jobfind/dart.py` — `DART_API_KEY`가 있으면 자소서 계획 단계에
+  상장기업 개황(대표자·설립일·시장구분·홈페이지)을 자동 반영. 무료·즉시발급 공식 API지만
+  비상장 회사는 커버 안 됨 (Phase 15)
 - **Config / secrets**: `python-dotenv` — 필터·관련성·provider 설정과 API 키를 전부 `.env`
   하나에서 로드 (v3 초반엔 `config.ini` + `.env`로 나뉘어 있었으나, 결국 둘 다 사람이 직접
   입력하는 파일이라 실사용 피드백으로 `.env` 하나로 통합함)
@@ -55,6 +62,7 @@
 │   ├── dedup.py                  # 플랫폼 간 중복 제거
 │   ├── filters.py                # .env 기반 1차 필터 (키워드/지역/경력유형/연차)
 │   ├── relevance.py              # HF 임베딩 기반 2차 필터 — 직무x도메인 랭킹, 상위 top_n만 유지
+│   ├── dart.py                   # DART 기업개황 조회 (상장기업만, API 키 있을 때만)
 │   ├── selection.py               # [자소서] 마커 스캔, materials/ 폴더 준비
 │   ├── storage.py                # jobs_all.txt/dismissed_ids.txt 읽기·쓰기, 블록 파싱, 마커 처리
 │   ├── providers/                # AI provider 추상화 (claude_cli/codex_cli/api)
@@ -181,10 +189,13 @@ AI provider 추상화, 자소서 오케스트레이션 파이프라인, 문서 �
 
 Phase 14(실사용 피드백 반영, `docs/PLAN.md` 참고)에서 `config.ini` → `.env` 통합, 관련성 랭킹
 결합식(합→곱) 수정, writer가 정보 부족해도 초안 작성을 거부하지 않도록 프롬프트 보강을
-완료했다. 다만 관련성 랭킹 품질 문제의 더 근본적인 원인 — `jhgan/ko-sroberta-multitask`가
-짧은 공고 제목에서 "IT/웹/앱" 같은 도메인을 잘 구분하지 못하는 것으로 실측됨 — 은 결합식
-수정만으로는 완전히 해결되지 않는다. 재검토 시 `docs/PLAN.md` Phase 14의 실측 기록을 먼저
-확인할 것 (다른 임베딩 모델 시도, job_text에 회사명 포함 등이 후보).
+완료했다. Phase 15에서 이어서 (1) 임베딩 모델을 `jhgan/ko-sroberta-multitask` →
+`snunlp/KR-SBERT-V40K-klueNLI-augSTS`로 교체(실측 비교로 도메인 판별력 개선 확인), (2) DART
+기업개황 자동 조회 추가, (3) planner에 WebSearch/WebFetch 허용을 완료했다. 자소설닷컴(실제
+자소서 문항 제공 사이트) 연동은 기술적으로(정적 스크래핑 불가, 이 환경에 브라우저 확장
+미연결) + 정책적으로(제3자 큐레이션 콘텐츠 스크래핑 소지) 보류했다 — 사용자가 직접 보고
+`materials/notes.md`에 복사해 넣는 기존 방식 유지. 재검토 시 `docs/PLAN.md` Phase 15를
+먼저 확인할 것.
 
 ## Scraping & API Constraints
 

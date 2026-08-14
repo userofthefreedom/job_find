@@ -75,6 +75,38 @@ def test_claude_cli_provider_with_images_enables_read_tool(monkeypatch, tmp_path
     assert captured["kwargs"]["cwd"] == str(tmp_path)
     assert "1.png" in captured["cmd"][2]  # 프롬프트에 이미지 파일명이 안내됨
 
+def test_claude_cli_provider_extra_tools_added_to_allowed_tools(monkeypatch):
+    import jobfind.providers.claude_cli as mod
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _FakeCompletedProcess(json.dumps({"is_error": False, "result": "PONG"}))
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    ClaudeCliProvider().run("system", "user", extra_tools=["WebSearch", "WebFetch"])
+
+    idx = captured["cmd"].index("--allowedTools")
+    assert captured["cmd"][idx + 1] == "WebSearch WebFetch"
+
+def test_claude_cli_provider_extra_tools_combine_with_read(monkeypatch, tmp_path):
+    import jobfind.providers.claude_cli as mod
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _FakeCompletedProcess(json.dumps({"is_error": False, "result": "PONG"}))
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    img = tmp_path / "1.png"
+    img.write_bytes(b"fake")
+    ClaudeCliProvider().run("system", "user", images=[img], extra_tools=["WebSearch"])
+
+    idx = captured["cmd"].index("--allowedTools")
+    assert captured["cmd"][idx + 1] == "WebSearch Read"
+
 def test_claude_cli_provider_raises_on_is_error(monkeypatch):
     import jobfind.providers.claude_cli as mod
 
@@ -105,6 +137,15 @@ def test_codex_cli_provider_returns_stdout(monkeypatch):
         mod.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess("결과 텍스트\n")
     )
     assert CodexCliProvider().run("system", "user") == "결과 텍스트"
+
+def test_codex_cli_provider_ignores_extra_tools(monkeypatch):
+    import jobfind.providers.codex_cli as mod
+
+    monkeypatch.setattr(
+        mod.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess("결과\n")
+    )
+    # extra_tools를 받아도 에러 없이 그냥 무시하고 정상 실행되어야 한다
+    assert CodexCliProvider().run("system", "user", extra_tools=["WebSearch"]) == "결과"
 
 def test_codex_cli_provider_missing_binary_raises_clear_error(monkeypatch):
     import jobfind.providers.codex_cli as mod
@@ -188,6 +229,19 @@ def test_api_provider_openai_returns_text(monkeypatch):
 
     monkeypatch.setattr(mod.requests, "post", fake_post)
     assert ApiProvider("openai").run("system", "user") == "hello"
+
+def test_api_provider_ignores_extra_tools(monkeypatch):
+    import jobfind.providers.api as mod
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(
+        mod.requests, "post",
+        lambda url, headers=None, json=None, timeout=None: _FakeResponse(
+            {"content": [{"type": "text", "text": "ok"}]}
+        ),
+    )
+    # extra_tools를 받아도 에러 없이 그냥 무시하고 정상 실행되어야 한다
+    assert ApiProvider("anthropic").run("system", "user", extra_tools=["WebSearch"]) == "ok"
 
 def test_api_provider_invalid_backend_raises():
     with pytest.raises(ValueError):
