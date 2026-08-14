@@ -38,16 +38,16 @@ def collect() -> None:
 
 
 def evaluate() -> None:
-    removed = evaluate_relevance(JOBS_PATH, DISMISSED_PATH)
+    dropped = evaluate_relevance(JOBS_PATH)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    print(f"[{now}] 관련성 평가 완료 | 제거: {removed}건")
+    print(f"[{now}] 관련성 평가 완료 | 순위 밖 제외: {dropped}건")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jobfind")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("collect", help="사람인+원티드 공고 수집 후 필터링해 저장")
-    subparsers.add_parser("evaluate", help="수집된 공고를 role_description과 비교해 관련성 재평가")
+    subparsers.add_parser("evaluate", help="수집된 공고를 직무·도메인 관련성 순으로 정렬해 상위 top_n건만 유지")
     args = parser.parse_args()
 
     if args.command == "collect":
