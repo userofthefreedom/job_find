@@ -4,7 +4,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from jobfind.collectors.saramin import _parse_og_description, normalize_saramin, parse_saramin_date
-from jobfind.collectors.wanted import _wanted_experience, normalize_wanted
+from jobfind.collectors.wanted import _wanted_experience, fetch_wanted_description, normalize_wanted
 
 # ── parse_saramin_date ────────────────────────────────────────────────────────
 
@@ -114,6 +114,27 @@ def test_normalize_wanted_null_deadline():
 
 def test_normalize_wanted_missing_key():
     assert normalize_wanted({"id": 1}) is None
+
+
+# ── fetch_wanted_description ──────────────────────────────────────────────────
+
+def test_fetch_wanted_description_formats_present_fields(monkeypatch):
+    import jobfind.collectors.wanted as mod
+
+    monkeypatch.setattr(
+        mod, "_fetch_wanted_raw_job",
+        lambda job_id: {"detail": {"intro": "회사 소개", "main_tasks": "주요 업무 내용"}},
+    )
+    text = fetch_wanted_description("380759")
+    assert "[회사/포지션 소개]\n회사 소개" in text
+    assert "[주요 업무]\n주요 업무 내용" in text
+    assert "자격 요건" not in text  # 없는 필드는 생략
+
+def test_fetch_wanted_description_missing_job_returns_empty(monkeypatch):
+    import jobfind.collectors.wanted as mod
+
+    monkeypatch.setattr(mod, "_fetch_wanted_raw_job", lambda job_id: None)
+    assert fetch_wanted_description("380759") == ""
 
 
 # ── _parse_og_description ─────────────────────────────────────────────────────

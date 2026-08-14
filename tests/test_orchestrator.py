@@ -96,3 +96,23 @@ def test_run_for_job_missing_profile_uses_empty_string(monkeypatch, tmp_path):
     orch.run_for_job("saramin_1", "공고 텍스트")
 
     assert orch.load_profile() == ""
+
+def test_run_for_job_enriches_job_text_with_fetched_posting(monkeypatch, tmp_path):
+    fake, _ = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])
+    monkeypatch.setattr(orch, "fetch_posting_text", lambda url: "실제 공고 상세 내용입니다")
+
+    job_text = "[제목]   백엔드 개발자\n[링크]   https://example.com/job/1"
+    orch.run_for_job("saramin_1", job_text)
+
+    for call in fake.calls:
+        assert "실제 공고 상세 내용입니다" in call["user"]
+
+def test_run_for_job_skips_enrichment_when_fetch_fails(monkeypatch, tmp_path):
+    fake, _ = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])
+    monkeypatch.setattr(orch, "fetch_posting_text", lambda url: "")
+
+    job_text = "[제목]   백엔드 개발자\n[링크]   https://example.com/job/1"
+    orch.run_for_job("saramin_1", job_text)
+
+    for call in fake.calls:
+        assert "[공고 상세 설명]" not in call["user"]

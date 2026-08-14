@@ -50,7 +50,9 @@ def normalize_wanted(item: dict) -> dict | None:
         return None
 
 
-def fetch_wanted_detail(job_id: str) -> dict | None:
+def _fetch_wanted_raw_job(job_id: str) -> dict | None:
+    """상세 API 원본 job dict를 그대로 반환한다 (normalize_wanted가 버리는
+    detail.intro/main_tasks/requirements 등 본문 필드를 포함)."""
     url = f"{WANTED_URL}/{job_id}"
     for attempt in range(2):
         try:
@@ -60,12 +62,32 @@ def fetch_wanted_detail(job_id: str) -> dict | None:
                 timeout=15,
             )
             resp.raise_for_status()
-            job = resp.json().get("job")
-            return normalize_wanted(job) if job else None
+            return resp.json().get("job")
         except (requests.RequestException, ValueError) as e:
             if attempt == 1:
                 print(f"[원티드] 공고 상세 조회 오류: {e}")
     return None
+
+
+def fetch_wanted_detail(job_id: str) -> dict | None:
+    job = _fetch_wanted_raw_job(job_id)
+    return normalize_wanted(job) if job else None
+
+
+def fetch_wanted_description(job_id: str) -> str:
+    """상세 API의 detail.* 본문 필드를 사람이 읽기 좋은 텍스트로 합쳐 반환한다.
+    실패하거나 필드가 없으면 빈 문자열을 반환한다."""
+    job = _fetch_wanted_raw_job(job_id)
+    detail = (job or {}).get("detail", {}) or {}
+    labels = [
+        ("intro", "회사/포지션 소개"),
+        ("main_tasks", "주요 업무"),
+        ("requirements", "자격 요건"),
+        ("preferred_points", "우대 사항"),
+        ("benefits", "혜택 및 복지"),
+    ]
+    parts = [f"[{label}]\n{detail[key]}" for key, label in labels if detail.get(key)]
+    return "\n\n".join(parts)
 
 
 def fetch_wanted_all() -> list[dict]:

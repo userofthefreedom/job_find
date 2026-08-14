@@ -1,14 +1,34 @@
 from __future__ import annotations
 import os
+import re
 from pathlib import Path
 
+from jobfind.collectors.wanted import fetch_wanted_description
 from jobfind.config import config
 from jobfind.pipeline import prompts
 from jobfind.providers.base import get_provider
+from jobfind.storage import extract_field
 
 COVER_LETTERS_DIR = "output/cover_letters"
 PROFILE_PATH = "profile.md"
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
+def fetch_posting_text(url: str) -> str:
+    """공고 링크의 상세 설명(담당업무·자격요건·우대사항 등)을 가져온다. planner/writer가
+    목록 페이지 태그(제목·조건 등)만이 아니라 실제 요건까지 참고할 수 있게 하기 위함이다.
+
+    원티드는 상세 API가 이 내용을 구조화된 필드로 그대로 제공해 신뢰도 높게 가져올 수
+    있다. 사람인은 상세 페이지 본문이 자바스크립트로 렌더링돼 정적 요청으로는 실제 내용을
+    가져올 수 없다는 걸 확인함 — 사람인 공고는 현재 이 함수가 빈 문자열을 반환한다
+    (알려진 한계, 헤더/내비게이션 같은 노이즈를 프롬프트에 넣는 것보다 나음).
+    실패해도 파이프라인은 계속 진행해야 하므로 빈 문자열을 반환한다."""
+    if not url:
+        return ""
+    m = re.search(r"wanted\.co\.kr/wd/(\d+)", url)
+    if m:
+        return fetch_wanted_description(m.group(1))
+    return ""
 
 
 def load_profile() -> str:
@@ -44,6 +64,10 @@ def run_for_job(job_id: str, job_text: str) -> dict:
     profile = load_profile()
     materials_dir = Path(COVER_LETTERS_DIR) / job_id / "materials"
     images = _materials_images(materials_dir)
+
+    posting_text = fetch_posting_text(extract_field(job_text, "[링크]"))
+    if posting_text:
+        job_text = f"{job_text}\n\n[공고 상세 설명]\n{posting_text}"
 
     planner = get_provider(config.PROVIDER_PLANNER)
     plan_evaluator = get_provider(config.PROVIDER_PLAN_EVALUATOR)
