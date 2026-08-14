@@ -103,16 +103,29 @@ def write() -> None:
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     print(f"[{now}] 자소서 작성 시작 | 대상: {len(ids)}건")
+    succeeded: list[str] = []
+    failed: list[str] = []
     for job_id in ids:
         block = find_block(JOBS_PATH, job_id)
         if not block:
             print(f"- {job_id}: jobs_all.txt에서 찾을 수 없어 건너뜀")
             continue
         print(f"- {job_id} 작성 중...")
-        run_for_job(job_id, block)
+        try:
+            run_for_job(job_id, block)
+        except Exception as e:
+            print(f"  실패: {e}")
+            failed.append(job_id)
+            continue
         print(f"  완료: output/cover_letters/{job_id}/draft.md")
-    print("자소서 작성 완료 — output/cover_letters/<공고ID>/ 하위에서 "
-          "plan.md · plan_review.md · draft.md · draft_review.md를 확인하세요.")
+        succeeded.append(job_id)
+
+    print(f"자소서 작성 완료 — 성공 {len(succeeded)}건, 실패 {len(failed)}건. "
+          "output/cover_letters/<공고ID>/ 하위에서 plan.md · plan_review.md · draft.md · "
+          "draft_review.md를 확인하세요.")
+    if failed:
+        print(f"[실패한 공고] {', '.join(failed)} — provider 상태나 네트워크를 확인한 뒤 "
+              "다시 write를 실행하면 해당 공고만 재시도됩니다.")
 
 
 def main() -> None:

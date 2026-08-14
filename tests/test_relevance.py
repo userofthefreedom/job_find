@@ -60,8 +60,8 @@ def test_rank_jobs_combines_role_and_domain(monkeypatch):
     assert combined == [1.8, 1.0, 1.0]
 
 
-def _make_block(job_id: str, title: str, keyword: str = "") -> str:
-    lines = [DIVIDER, "[ ]", f"[제목]   {title}"]
+def _make_block(job_id: str, title: str, keyword: str = "", selected: bool = False) -> str:
+    lines = [DIVIDER, "[자소서]" if selected else "[ ]", f"[제목]   {title}"]
     if keyword:
         lines.append(f"[직무]   {keyword}")
     lines += [f"[ID]     {job_id}", DIVIDER]
@@ -96,6 +96,35 @@ def test_evaluate_relevance_keeps_only_top_n(monkeypatch):
         assert "saramin_2" not in remaining
         # 순위 밖 공고라도 영구 제외 목록에는 등록하지 않는다
         assert not os.path.exists(os.path.join(tmpdir, "dismissed_ids.txt"))
+
+
+def test_evaluate_relevance_protects_selected_jobs_from_ranking_cut(monkeypatch):
+    import jobfind.relevance as relevance
+
+    monkeypatch.setattr(config, "RELEVANCE_ROLES", "기획 PM")
+    monkeypatch.setattr(config, "RELEVANCE_DOMAINS", "")
+    monkeypatch.setattr(config, "RELEVANCE_TOP_N", 1)
+    # [자소서]로 선택된 saramin_2는 점수와 무관하게 항상 보존되어야 하고,
+    # 랭킹 대상(saramin_1, saramin_3)에는 포함되지 않아야 한다 (top_n=1이 이 둘에만 적용).
+    monkeypatch.setattr(relevance, "rank_jobs", lambda texts: [3.0, 1.0][: len(texts)])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        content = (
+            _make_block("saramin_1", "1순위 공고")
+            + _make_block("saramin_2", "자소서 작성 중인 공고", selected=True)
+            + _make_block("saramin_3", "탈락할 공고")
+        )
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        dropped = evaluate_relevance(jobs_path)
+
+        remaining = open(jobs_path, encoding="utf-8").read()
+        assert "saramin_1" in remaining
+        assert "saramin_2" in remaining  # 선택된 공고는 순위와 무관하게 항상 보존
+        assert "saramin_3" not in remaining
+        assert dropped == 1  # 랭킹 대상(saramin_1/3) 기준으로만 카운트
 
 
 def test_evaluate_relevance_no_op_when_pool_within_top_n(monkeypatch):
