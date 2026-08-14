@@ -1,141 +1,399 @@
 # 채용 공고 수집 + 자소서 초안 작성 도구
 
-사람인·원티드에서 채용 공고를 수집해 조건에 맞는 것만 필터링하고, 로컬 임베딩 모델로
-관련성 순위를 매긴 뒤, 선택한 공고에 대해 AI가 자소서 초안까지 작성해주는 CLI 도구.
+사람인·원티드에서 채용 공고를 모아 조건에 맞는 것만 걸러내고, 관련성 순으로 정렬해주고,
+마음에 드는 공고는 AI가 자소서 초안까지 써주는 개인용 CLI 도구입니다.
 
-모든 단계는 사용자가 명령을 실행할 때만 동작한다 (Windows 작업 스케줄러 무인 실행은 v3에서
-폐기됨 — 자세한 배경은 `docs/PLAN.md` Phase 8 참고).
-
----
-
-## 주요 기능
-
-- **이중 소스 수집**: 사람인 공개 검색 페이지 스크래핑 + 원티드 비공식 API 동시 조회, 교차
-  중복 제거(제목 유사도 ≥ 85%)
-- **조건 필터링**: 키워드·지역·경력 유형·연차를 `config.ini`에서 자유롭게 설정
-- **관련성 랭킹**: 로컬 HuggingFace 임베딩 모델(비용 없음)로 "직무"와 "도메인"을 따로 비교해
-  결합 점수로 정렬, 상위 `top_n`건만 유지 — 둘 다 가까운 공고가 최상위, 순위 밖 공고는
-  영구 제외되지 않고 다음 수집에서 다시 상위권에 들 수 있음
-- **수동 추가**: 시스템이 못 찾은 공고도 URL로 직접 추가 가능
-- **자소서 초안 작성**: `[자소서]`로 최대 4개까지 선택하면, AI가 계획 → 계획평가 →
-  (필요시 재작성) → 작성 → 초안평가 순으로 초안을 만들어 저장. 각 단계는 독립 호출이라
-  이전 맥락을 공유하지 않는(격리된) 평가를 받는다
-- **X 마커 처리**: 관심 없는 공고는 `[X]`로 표시하면 다음 실행 시 자동 제거·영구 제외
+프로그래밍을 몰라도 설정 파일(`config.ini`, `profile.md`)만 텍스트 편집기로 고치면 되도록
+만들어졌습니다. 이 문서는 Python을 한 번도 안 써본 사람도 따라 할 수 있도록 처음부터
+끝까지 순서대로 설명합니다.
 
 ---
 
-## 프로젝트 구조
+## 목차
+
+1. [이 도구가 하는 일](#1-이-도구가-하는-일)
+2. [시작 전 준비물](#2-시작-전-준비물)
+3. [설치](#3-설치)
+4. [처음 설정하기](#4-처음-설정하기)
+5. [사용법](#5-사용법)
+6. [전체 사용 흐름 예시 (A~Z)](#6-전체-사용-흐름-예시-az)
+7. [파일과 마커 이해하기](#7-파일과-마커-이해하기)
+8. [비용에 대해 알아둘 것](#8-비용에-대해-알아둘-것)
+9. [문제 해결](#9-문제-해결)
+10. [자주 묻는 질문](#10-자주-묻는-질문)
+11. [테스트](#11-테스트)
+12. [기술 스택 / 알려진 한계](#12-기술-스택--알려진-한계)
+
+---
+
+## 1. 이 도구가 하는 일
+
+터미널(명령 프롬프트)에서 명령어를 하나씩 입력하며 아래 순서로 사용합니다. 자동으로
+매일 실행되는 것이 아니라 **사용자가 명령을 입력할 때만 동작**합니다.
 
 ```
-/
-├── jobfind.py                  # 진입점
-├── jobfind/
-│   ├── cli.py                   # collect / evaluate / add / select / write
-│   ├── config.py
-│   ├── collectors/              # saramin.py, wanted.py
-│   ├── dedup.py / filters.py / relevance.py / selection.py / storage.py
-│   ├── providers/               # claude_cli / codex_cli / api
-│   └── pipeline/                # prompts.py, orchestrator.py
-├── config.ini                   # 필터·관련성·provider 설정
-├── profile.md                   # 이력/자기소개 (직접 작성, Git 제외)
-├── requirements.txt
-├── .env.example
-├── output/
-│   ├── jobs_all.txt
-│   ├── dismissed_ids.txt
-│   └── cover_letters/<공고ID>/  # plan.md, plan_review.md, draft.md, draft_review.md
-├── tests/
-└── docs/                        # 기획 문서 + 세션 진행 기록
+① collect  — 사람인·원티드에서 오늘 공고를 가져와 조건에 맞는 것만 저장
+② evaluate — 저장된 공고를 "직무"·"도메인" 관련성 순으로 정렬해 상위 몇 건만 남김
+③ add      — (선택) 시스템이 못 찾은 공고를 URL로 직접 추가
+④ select   — 자소서를 쓰고 싶은 공고를 최대 4개까지 선택
+⑤ write    — 선택한 공고마다 AI가 자소서 초안을 작성
 ```
+
+②는 로컬 컴퓨터에서 도는 무료 AI 모델을 쓰고, ⑤는 Claude/Codex/API 중 설정한 AI를 씁니다.
+어떤 AI를 쓸지는 나중에 [4-4장](#4-4-ai-provider-정하기)에서 정합니다.
 
 ---
 
-## 설치
+## 2. 시작 전 준비물
 
-Python 3.11 이상 필요.
+아래 체크리스트를 먼저 확인하세요.
 
+- [ ] **Windows PC** (이 도구는 Windows 환경 기준으로 만들어졌습니다)
+- [ ] **Python 3.11 이상**
+- [ ] **터미널 프로그램** — Windows PowerShell(기본 내장) 또는 Git Bash 둘 다 사용 가능
+- [ ] **자소서 작성 기능을 쓰려면** 아래 중 하나
+  - Claude Code CLI가 설치·로그인되어 있음 (이 프로젝트를 Claude Code로 만들거나 사용 중이라면
+    이미 준비된 상태입니다 — 기본값이라 가장 간단함)
+  - 또는 Anthropic/OpenAI API 키 (유료, [4-4장](#4-4-ai-provider-정하기) 참고)
+- [ ] 사람인·원티드 회원가입은 **필요 없음** (공개 페이지/API만 사용)
+
+### Python이 설치되어 있는지 확인하기
+
+터미널을 열고 아래 명령을 입력합니다.
+
+```bash
+python --version
+```
+
+`Python 3.11.x` 같은 버전이 나오면 준비 완료입니다. `python: command not found` 같은
+오류가 나오면 [python.org](https://www.python.org/downloads/)에서 최신 버전을 내려받아
+설치하세요. 설치 중 **"Add python.exe to PATH"** 체크박스를 반드시 체크해야 터미널에서
+`python` 명령이 인식됩니다.
+
+---
+
+## 3. 설치
+
+### 3-1. 가상환경 생성
+
+프로젝트 폴더로 이동한 뒤 실행합니다. 가상환경은 이 프로젝트만을 위한 독립된 Python
+공간을 만들어, 다른 프로그램에 영향을 주지 않게 해줍니다.
+
+**PowerShell 사용 시:**
+```powershell
+python -m venv venv
+venv\Scripts\Activate.ps1
+```
+
+**Git Bash 사용 시:**
 ```bash
 python -m venv venv
 source venv/Scripts/activate
+```
 
-# sentence-transformers·torch가 포함돼 있어 최초 설치에 시간이 걸릴 수 있음
+성공하면 터미널 프롬프트 맨 앞에 `(venv)`가 붙습니다. **이후 모든 명령은 이 상태에서
+실행해야 합니다** — 터미널을 새로 열 때마다 이 활성화 명령을 다시 입력해야 합니다.
+
+### 3-2. 의존성 설치
+
+```bash
 pip install -r requirements.txt
 ```
 
-`profile.md.example`을 복사해 `profile.md`를 만들고 자신의 이력/경험을 자유 텍스트로 채워둔다
-(자소서 작성 단계에서 참고, 개인정보라 Git에는 올라가지 않음).
+관련성 평가에 쓰이는 `sentence-transformers`/`torch`가 포함돼 있어 **최초 설치에 5~10분
+정도 걸릴 수 있습니다.** 인터넷 연결 상태에 따라 더 걸릴 수도 있으니, 설치 중 멈춘 것처럼
+보여도 잠시 기다려주세요.
+
+설치가 끝나면 아래로 확인합니다.
+
+```bash
+python jobfind.py
+```
+
+`the following arguments are required: command` 같은 안내가 나오면 정상 설치된 것입니다
+(아직 명령어를 안 줬다는 뜻일 뿐, 오류가 아닙니다).
+
+---
+
+## 4. 처음 설정하기
+
+### 4-1. 프로필 작성 (`profile.md`)
+
+자소서 작성 단계에서 AI가 참고할 내 이력서/자기소개를 자유 텍스트로 적어두는 파일입니다.
+개인정보이므로 Git에는 올라가지 않도록 이미 설정되어 있습니다.
 
 ```bash
 cp profile.md.example profile.md
 ```
 
----
+`profile.md`를 메모장이나 아무 텍스트 편집기로 열어 채웁니다. 형식은 자유지만 예시:
 
-## 설정 (`config.ini`)
+```markdown
+# 프로필
 
-메모장 등 아무 텍스트 편집기로 열어 `=` 뒤의 값만 바꾸면 된다.
+## 경력 요약
+
+3년차 서비스 기획자. B2C 커머스 앱의 신규 기능 기획·런칭 경험.
+
+## 주요 프로젝트 / 경험
+
+- "찜 목록 공유" 기능 기획·런칭 — 사용자 리서치부터 PRD 작성, 개발/디자인 협업,
+  출시 후 지표 트래킹까지 전 과정 리드. 출시 3개월 후 관련 기능 사용률 12% 달성
+- 검색 결과 정렬 로직 개선 — 데이터 분석팀과 A/B 테스트 설계, 전환율 개선 확인 후 전체 적용
+
+## 강점
+
+- 데이터 기반 의사결정
+- 모호한 문제를 구체적인 실행 계획으로 쪼개는 능력
+
+## 기타
+
+- 정보처리기사, 토익 900
+```
+
+**구체적으로 적을수록 자소서 품질이 좋아집니다.** "커뮤니케이션 능력이 좋음" 같은
+추상적인 문장보다 "무엇을 했고 결과가 어땠는지"를 숫자와 함께 적는 게 좋습니다.
+
+### 4-2. 필터 조건 설정 (`config.ini` `[filter]`)
+
+`config.ini`를 텍스트 편집기로 엽니다. `=` 뒤의 값만 바꾸면 되고, 코드 문법을 몰라도
+됩니다. 각 항목은 **비워두면 그 조건을 검사하지 않습니다** (전체 허용).
 
 ```ini
 [filter]
-keywords = 기획, PM              # 제목/직무 태그에 하나라도 포함되면 통과
-locations = 서울, 판교           # 비워두면 전체허용
+# 공고 제목이나 직무 태그에 하나라도 포함되면 통과. 쉼표로 여러 개 지정
+keywords = 기획, PM
+
+# 근무 지역. 비워두면 전국 다 통과
+locations = 서울, 판교
+
+# 신입 / 경력 / 신입·경력 중 하나. 비워두면 전체 허용
 career_type = 신입·경력
+
+# 경력 연차 범위 (숫자만). 하한/상한 중 하나만 비워둘 수도 있음
 exp_min =
 exp_max = 5
+
+# 채용공고가 아닌 것으로 보고 제외할 단어
 exclude_keywords = 교육생, 무료교육, 설명회, 상시채용
-
-[relevance]
-roles = 기획, PM                 # 직무 — 비워두면 관련성 랭킹 단계를 건너뜀
-domains = 커머스, 게임           # 도메인/업종 — 직무와 도메인 둘 다 가까운 공고가 1순위
-top_n = 20                       # 상위 몇 건만 유지할지
-model = jhgan/ko-sroberta-multitask
-
-[providers]
-planner = claude_cli             # claude_cli | codex_cli | api:anthropic | api:openai
-plan_evaluator = claude_cli
-writer = claude_cli
-draft_evaluator = claude_cli
 ```
 
-`config.ini`를 수정하고 저장하면 다음 실행부터 즉시 반영된다.
+**예시로 이해하기**: `keywords = 기획, PM`이면 제목에 "기획"이나 "PM"이 들어간 공고는
+바로 통과합니다. 제목엔 없어도 직무 태그가 정확히 "기획" 또는 "PM"인 공고도 통과하되,
+이때는 `exclude_keywords`에 있는 단어가 제목/고용형태에 있으면 탈락시켜 무료교육·설명회
+같은 노이즈를 걸러냅니다.
+
+> **원티드 지역 관련 팁**: 원티드 API는 지역을 "경기"처럼 시/도 단위로만 알려줍니다.
+> "판교"·"성남" 공고까지 원티드에서 잡으려면 `locations`에 "경기"도 같이 넣어야 합니다
+> (다만 이 경우 원티드 쪽은 경기 전역 공고가 함께 통과되는 트레이드오프가 있습니다).
+
+### 4-3. 관련성 랭킹 설정 (`config.ini` `[relevance]`)
+
+`keywords`보다 한 단계 더 똑똑하게, 의미가 비슷한 공고까지 잡아서 순위를 매기는 기능입니다.
+**로컬에서 도는 무료 AI 모델**을 쓰기 때문에 비용이 들지 않습니다 (다만 최초 실행 시
+모델 파일을 자동으로 내려받는데, 수백 MB라 시간이 좀 걸릴 수 있습니다).
+
+```ini
+[relevance]
+# 직무 — "기획, PM"이라고 적으면 문자 그대로 안 겹쳐도 의미가 비슷한 공고를 찾아줌
+roles = 기획, PM
+
+# 도메인/업종 — 직무와 도메인 둘 다 가까운 공고가 최상위로 옴
+domains = 커머스, 게임
+
+# 상위 몇 건만 남길지
+top_n = 20
+```
+
+`roles`와 `domains`를 **둘 다 비워두면 이 단계 자체를 건너뜁니다.** 처음에는 비워두고
+`collect`만 써보다가, 나중에 필요하면 채워도 됩니다.
+
+**예시**: `roles = 기획, PM`, `domains = 커머스, 게임`으로 설정하면 "게임 기획 PM"이
+1순위, "반도체 개발 PM"이나 "게임 마케팅팀"처럼 하나만 겹치는 공고가 그 다음 순위로
+정렬됩니다.
+
+> **주의**: 이미 `[자소서]`로 선택해둔 공고는 순위와 무관하게 항상 보존되니, 관련성 순위가
+> 낮아져도 진행 중인 자소서 작업이 사라질 걱정은 하지 않아도 됩니다.
+
+### 4-4. AI Provider 정하기
+
+자소서 초안 작성(`write` 명령)에 어떤 AI를 쓸지 정합니다. `config.ini`의 `[providers]`
+섹션에서 정합니다.
+
+```ini
+[providers]
+planner = claude_cli         # 자소서 작성 계획을 세우는 역할
+plan_evaluator = claude_cli  # 그 계획을 냉정하게 평가하는 역할
+writer = claude_cli          # 실제 자소서 문장을 쓰는 역할
+draft_evaluator = claude_cli # 작성된 초안을 평가하는 역할
+```
+
+네 역할 각각 아래 중 하나를 고를 수 있고, 섞어 써도 됩니다.
+
+| 값 | 설명 | 준비물 |
+|---|---|---|
+| `claude_cli` (기본값, 추천) | Claude Code CLI를 그대로 사용 | Claude Code가 설치·로그인돼 있으면 끝. 추가 설정 불필요 |
+| `codex_cli` | OpenAI Codex CLI를 그대로 사용 | Codex CLI 설치·로그인 필요. **이 프로젝트에서 실제로 검증되지 않은 기능입니다** — 오류가 나면 `claude_cli`로 되돌리세요 |
+| `api:anthropic` | Anthropic API를 직접 호출 | `.env`에 `ANTHROPIC_API_KEY` 필요, 호출당 과금 |
+| `api:openai` | OpenAI API를 직접 호출 | `.env`에 `OPENAI_API_KEY` 필요, 호출당 과금 |
+
+**아무것도 안 바꾸면 기본값(`claude_cli`)이 적용되니, Claude Code를 이미 쓰고 있다면
+이 단계를 건너뛰어도 됩니다.**
+
+`api:anthropic`이나 `api:openai`를 쓰려면:
+
+1. `.env.example`을 복사해 `.env` 파일을 만듭니다: `cp .env.example .env`
+2. [console.anthropic.com](https://console.anthropic.com) 또는
+   [platform.openai.com](https://platform.openai.com)에서 API 키를 발급받습니다.
+3. `.env` 파일을 열어 아래처럼 키를 채웁니다.
+
+```
+ANTHROPIC_API_KEY=sk-ant-여기에실제키
+OPENAI_API_KEY=sk-여기에실제키
+```
+
+**`.env` 파일은 절대 다른 사람과 공유하거나 Git에 올리지 마세요** (`.gitignore`에 이미
+제외되어 있어 실수로 커밋되지는 않습니다).
 
 ---
 
-## 실행
+## 5. 사용법
+
+모든 명령은 가상환경 활성화 상태(`(venv)`)에서 실행합니다.
+
+### `collect` — 공고 수집
 
 ```bash
-source venv/Scripts/activate
-
-python jobfind.py collect     # 사람인+원티드 수집 → 1차 필터 → jobs_all.txt에 저장
-python jobfind.py evaluate    # 직무·도메인 관련성 순 정렬, 상위 top_n건만 유지
-python jobfind.py add <url>   # 공고 URL을 수동으로 추가
-python jobfind.py select      # [자소서]로 표시한 공고에 materials/ 폴더 준비
-python jobfind.py write       # [자소서] 선택 공고(최대 4개)의 자소서 초안 작성
+python jobfind.py collect
 ```
 
-콘솔 출력 예시:
+사람인·원티드에서 최신 공고를 가져와 `config.ini [filter]` 조건에 맞는 것만
+`output/jobs_all.txt`에 추가합니다. 이미 저장된 공고는 다시 추가되지 않습니다.
 
 ```
 [2026-08-14 12:00] 조회: 180건 | X 처리: 2건 | 필터 통과: 12건 | 신규 저장: 5건
-[2026-08-14 12:01] 관련성 평가 완료 | 순위 밖 제외: 3건
 ```
 
+### `evaluate` — 관련성 랭킹
+
+```bash
+python jobfind.py evaluate
+```
+
+`[relevance]`에 `roles`/`domains`를 설정했다면, 저장된 공고를 관련성 순으로 정렬해
+상위 `top_n`건만 남깁니다. 비워뒀다면 아무 것도 하지 않습니다.
+
+```
+[관련성 평가] 관련성 순 정렬 완료, 상위 20건 유지, 8건 순위 밖으로 제외 (1건은 [자소서] 선택으로 보존)
+```
+
+### `add` — 공고 수동 추가
+
+```bash
+python jobfind.py add "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=12345678"
+python jobfind.py add "https://www.wanted.co.kr/wd/123456"
+```
+
+시스템이 못 찾았거나 필터에 걸러졌지만 직접 넣고 싶은 공고를 URL로 추가합니다. 사람인
+공고 상세 URL 또는 원티드 URL(`wanted.co.kr/wd/숫자`) 형식만 가능합니다.
+
+### `select` — 자소서 작성 대상 선택
+
+`output/jobs_all.txt`를 텍스트 편집기로 열어, 자소서를 쓰고 싶은 공고의 마커를 `[ ]`에서
+`[자소서]`로 바꿔 저장합니다 (최대 4개). 그다음 실행합니다.
+
+```bash
+python jobfind.py select
+```
+
+`output/cover_letters/<공고ID>/materials/` 폴더가 자동으로 만들어집니다. 이 폴더에 공고
+스크린샷(이미지 파일)이나 `notes.md`(회사에 대해 알고 있는 추가 정보 등)를 직접 넣어두면,
+다음 `write` 실행 시 자소서 계획 단계에서 참고합니다. 파일명은 아무렇게나 지어도 됩니다.
+
+### `write` — 자소서 초안 작성
+
+```bash
+python jobfind.py write
+```
+
+`[자소서]`로 선택된 공고마다 아래 순서로 AI를 호출합니다.
+
+```
+계획 수립 → 계획 평가 → (필요하면 계획 재작성) → 초안 작성 → 초안 평가
+```
+
+각 단계는 서로 독립적으로 실행되어 이전 단계의 대화 내용을 공유하지 않습니다 — 평가
+단계가 작성자를 봐주지 않고 냉정하게 판단하도록 하기 위함입니다. 공고 1개당 보통
+1~5분 정도 걸리며(네트워크·AI 응답 속도에 따라 다름), 여러 공고가 있으면 순서대로
+처리합니다. 중간에 한 공고가 실패해도 나머지는 계속 진행됩니다.
+
+```
+[2026-08-14 12:10] 자소서 작성 시작 | 대상: 2건
+- saramin_54736780 작성 중...
+  완료: output/cover_letters/saramin_54736780/draft.md
+- wanted_380759 작성 중...
+  완료: output/cover_letters/wanted_380759/draft.md
+자소서 작성 완료 — 성공 2건, 실패 0건. output/cover_letters/<공고ID>/ 하위에서
+plan.md · plan_review.md · draft.md · draft_review.md를 확인하세요.
+```
+
+결과 폴더에는 4개 파일이 생깁니다.
+
+| 파일 | 내용 |
+|---|---|
+| `plan.md` | AI가 세운 자소서 작성 계획(개요) |
+| `plan_review.md` | 그 계획에 대한 평가 의견 (OK 또는 NEEDS_REVISION + 이유) |
+| `draft.md` | **실제 자소서 초안** — 가장 먼저 열어볼 파일 |
+| `draft_review.md` | 초안에 대한 평가 의견 — 제출 전 참고용 |
+
+**초안을 그대로 제출하지 말고, `draft_review.md`의 지적 사항을 반영해 직접 다듬은 뒤
+사용하세요.** 초안 평가 후 자동으로 다시 쓰지는 않습니다 — 재작성이 필요하면 `write`를
+다시 실행하면 됩니다.
+
 ---
 
-## 사용 흐름
+## 6. 전체 사용 흐름 예시 (A~Z)
 
-1. `jobfind.py collect` → `jobfind.py evaluate`로 관련성 높은 공고 목록을 만든다.
-2. `jobs_all.txt`를 열어 훑어보며 관심 없는 공고는 `[X]`로 표시한다 (다음 실행 시 제거·영구 제외).
-3. 시스템이 못 찾은 공고가 있으면 `jobfind.py add <url>`로 직접 추가한다.
-4. 자소서를 쓰고 싶은 공고(최대 4개)를 `[자소서]`로 표시하고 `jobfind.py select`를 실행한다.
-   생성된 `output/cover_letters/<공고ID>/materials/`에 공고 스크린샷이나 `notes.md`(추가 메모)를
-   넣어두면 계획 단계에서 참고한다.
-5. `jobfind.py write`를 실행하면 공고별로 `plan.md`(작성 계획) · `plan_review.md`(계획 평가) ·
-   `draft.md`(자소서 초안) · `draft_review.md`(초안 평가)가 만들어진다.
+처음 쓰는 하루를 예로 들면 이렇게 진행됩니다.
+
+```bash
+# 1. 가상환경 활성화
+source venv/Scripts/activate
+
+# 2. 오늘 공고 수집
+python jobfind.py collect
+# → "신규 저장: 8건"
+
+# 3. 관련성 순으로 정렬 (roles/domains를 미리 설정해뒀다면)
+python jobfind.py evaluate
+# → "상위 20건 유지"
+
+# 4. jobs_all.txt를 열어 훑어봄
+#    - 관심 없는 공고는 [ ] → [X]
+#    - 마음에 드는 공고 2~3개는 [ ] → [자소서]
+#    - 시스템이 못 찾은 공고가 있으면 add로 추가
+python jobfind.py add "https://www.wanted.co.kr/wd/999999"
+
+# 5. 선택 반영 + materials 폴더 준비
+python jobfind.py select
+# → 각 공고의 output/cover_letters/<ID>/materials/ 폴더 생성됨
+#    (원하면 여기에 스크린샷·메모 추가)
+
+# 6. 자소서 초안 작성 (몇 분 소요)
+python jobfind.py write
+
+# 7. output/cover_letters/<ID>/draft.md 를 열어 검토·수정 후 사용
+```
+
+다음날 다시 `collect`+`evaluate`를 돌리면 새 공고가 쌓이고, 어제 `[X]`로 표시한 공고는
+다시 나타나지 않습니다. `[자소서]`로 선택했지만 아직 `write`를 안 돌린 공고는 순위가
+낮아져도 사라지지 않고 그대로 남습니다.
 
 ---
 
-## 출력 파일 형식 (`output/jobs_all.txt`)
+## 7. 파일과 마커 이해하기
+
+### `output/jobs_all.txt` 형식
 
 ```
 ════════════════════════════════════════════════
@@ -152,17 +410,85 @@ python jobfind.py write       # [자소서] 선택 공고(최대 4개)의 자소
 ════════════════════════════════════════════════
 ```
 
-두 번째 줄의 마커는 세 가지 상태를 가질 수 있다.
+두 번째 줄의 마커를 텍스트 편집기로 직접 바꿔서 상태를 조절합니다.
 
 | 마커 | 의미 | 다음 실행 시 동작 |
 |---|---|---|
 | `[ ]` | 아직 처리 안 함 (기본값) | 그대로 유지 |
-| `[X]` | 관심 없음 | 파일에서 제거되고 `dismissed_ids.txt`에 영구 기록 (재수집 안 됨) |
-| `[자소서]` | 자소서 작성 대상으로 선택 (최대 4개) | `select` 실행 시 `materials/` 폴더 생성, `write` 실행 시 초안 작성 |
+| `[X]` | 관심 없음 | `collect` 실행 시 파일에서 제거되고 `dismissed_ids.txt`에 영구 기록 (다시는 수집 안 됨) |
+| `[자소서]` | 자소서 작성 대상 (최대 4개) | `select` 실행 시 `materials/` 폴더 생성, `write` 실행 시 초안 작성. `evaluate`가 순위를 매겨도 삭제되지 않음 |
+
+### 그 외 파일
+
+| 경로 | 내용 |
+|---|---|
+| `output/dismissed_ids.txt` | `[X]` 처리된 공고 ID 영구 기록 (직접 편집할 필요 없음) |
+| `output/cover_letters/<공고ID>/materials/` | 자소서 작성에 참고할 이미지·메모를 직접 넣는 곳 |
+| `output/cover_letters/<공고ID>/*.md` | 자소서 작성 파이프라인의 결과물 |
 
 ---
 
-## 테스트
+## 8. 비용에 대해 알아둘 것
+
+- **`collect`/`evaluate`/`add`/`select`는 완전 무료**입니다. 사람인·원티드는 공개
+  페이지/API를 쓰고, 관련성 평가는 로컬에서 도는 오픈소스 모델을 씁니다.
+- **`write`(자소서 작성)는 쓰는 AI provider에 따라 다릅니다.**
+  - `claude_cli`(기본값): Claude Code 로그인 세션을 그대로 사용합니다. API 키를 새로 발급받을
+    필요는 없지만, **완전히 공짜라고 단정할 수는 없습니다** — 이 프로젝트를 만들면서 실제로
+    확인해보니 호출마다 Claude Code 자체의 기본 컨텍스트 때문에 상당한 토큰이 소모됐습니다.
+    가입한 요금제(구독형인지 종량제인지)에 따라 실질적인 비용/사용량 한도 소모가 달라질 수
+    있으니, 사용 중인 플랜을 미리 확인하세요.
+  - `api:anthropic` / `api:openai`: 호출 1건마다 그대로 과금됩니다. 자소서 1건을 작성하는 데
+    보통 4~5번의 AI 호출이 일어나므로(계획 → 평가 → 필요시 재작성 → 작성 → 평가), 공고
+    4개를 한 번에 처리하면 그만큼 호출이 늘어난다는 점을 감안하세요.
+- 비용이 걱정되면 `write`는 정말 지원하고 싶은 공고만 신중하게 골라서(4개보다 적게) 실행하는
+  것을 추천합니다.
+
+---
+
+## 9. 문제 해결
+
+| 증상 | 원인 / 해결 |
+|---|---|
+| `python: command not found` | Python이 설치 안 됐거나 PATH에 없음. [python.org](https://www.python.org/downloads/)에서 재설치하며 "Add to PATH" 체크 |
+| `pip install` 이 한참 동안 멈춘 것처럼 보임 | `sentence-transformers`/`torch` 설치가 원래 오래 걸립니다. 5~10분 기다려보세요 |
+| `collect` 실행 시 "조회: 0건" | 인터넷 연결 확인. 사람인·원티드 중 한쪽만 실패해도 나머지는 정상 처리되니, 콘솔에 `[사람인]`/`[원티드]` 오류 메시지가 있는지 확인 |
+| `write` 실행 시 `claude CLI 실행 실패` | Claude Code CLI가 설치 안 됐거나 로그인이 풀렸을 수 있음. 터미널에 `claude`만 입력했을 때 정상적으로 대화가 시작되는지 확인 |
+| `write` 실행 시 `ANTHROPIC_API_KEY가 .env에 설정되어 있지 않습니다` | `config.ini [providers]`에서 `api:anthropic`을 선택했는데 `.env`에 키를 안 넣은 경우. [4-4장](#4-4-ai-provider-정하기) 참고 |
+| `[오류] 자소서는 최대 4개까지만...` | `jobs_all.txt`에서 `[자소서]` 마커가 5개 이상 붙어 있음. 일부를 `[ ]`로 되돌린 뒤 다시 `write` 실행 |
+| 자소서 초안 안에 "WebFetch 권한이 없어..." 같은 문구가 있음 | 정상 동작입니다 — 없는 정보를 지어내지 않고 한계를 밝힌 것. `draft_review.md`의 지적을 참고해 직접 보완하세요 |
+| 사람인 공고 자소서가 원티드 공고보다 내용이 부실함 | 알려진 한계입니다. 사람인은 상세 설명이 자바스크립트로 렌더링돼 있어 자동으로 가져올 수 없습니다. `materials/notes.md`에 직접 상세 내용을 적어두면 보완됩니다 |
+
+---
+
+## 10. 자주 묻는 질문
+
+**Q. 매일 자동으로 실행되나요?**
+아니요. 예전 버전은 Windows 작업 스케줄러로 자동 실행했지만, 지금은 사용자가 명령을
+직접 입력할 때만 동작합니다. 자동화하고 싶다면 위 5개 명령어를 순서대로 실행하는
+배치 파일(.bat)을 직접 만들어 작업 스케줄러에 등록할 수 있습니다.
+
+**Q. 자소서를 4개보다 많이 한 번에 쓸 수 없나요?**
+의도적인 제한입니다. AI 호출 비용/시간과 품질(너무 많으면 대충 쓰게 됨)을 고려해 최대
+4개로 정했습니다.
+
+**Q. 관련성 평가(`evaluate`)에서 순위가 낮게 나온 공고는 영영 못 보나요?**
+아닙니다. `[X]`와 달리 영구 제외되지 않습니다. 다음 `collect`+`evaluate`에서 경쟁 구도가
+바뀌면 다시 상위권에 들 수 있습니다.
+
+**Q. 자소서 초안을 그대로 제출해도 되나요?**
+권장하지 않습니다. AI가 작성한 초안이며, `draft_review.md`에 스스로 지적한 개선점이
+남아 있습니다. 반드시 직접 검토하고 사실관계를 확인한 뒤 사용하세요.
+
+**Q. 사람인 공식 API 승인을 받으면 어떻게 되나요?**
+현재는 스크래핑 방식을 쓰고 있고, 공식 API로 교체하는 건 향후 과제로 남아있습니다
+(`docs/PRD.md` 참고).
+
+---
+
+## 11. 테스트
+
+코드를 수정했다면 실행해서 기존 기능이 안 깨졌는지 확인할 수 있습니다.
 
 ```bash
 source venv/Scripts/activate
@@ -171,7 +497,7 @@ python -m pytest tests/ -v
 
 ---
 
-## 기술 스택
+## 12. 기술 스택 / 알려진 한계
 
 | 항목 | 내용 |
 |---|---|
@@ -184,3 +510,14 @@ python -m pytest tests/ -v
 | 환경 변수 | python-dotenv |
 | 런타임 | Windows 로컬, 사용자가 터미널에서 직접 실행 |
 | 출력 | UTF-8 txt (`jobs_all.txt`) + 공고별 자소서 결과 (`cover_letters/<ID>/`) |
+
+**알려진 한계**:
+- 사람인 공고는 상세 설명(담당업무·자격요건)이 자바스크립트로 렌더링돼 있어 자동으로
+  가져올 수 없습니다. 자소서 작성 시 목록 정보만으로 초안이 만들어지며, 보완하려면
+  `materials/notes.md`에 직접 내용을 적어두면 됩니다.
+- `codex_cli` provider는 이 프로젝트를 만든 환경에 Codex CLI가 설치되어 있지 않아 실제
+  동작을 검증하지 못했습니다. 오류가 나면 `claude_cli`로 바꿔 사용하세요.
+- 원티드 API에 "오늘 등록된 공고만" 정확히 필터링하는 파라미터를 찾지 못해, 최신순으로
+  최대 100건을 가져온 뒤 중복 제거로 대응하고 있습니다.
+
+더 자세한 설계 배경은 `docs/PRD.md`, `docs/SPEC.md`, `docs/PLAN.md`를 참고하세요.
