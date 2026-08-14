@@ -28,13 +28,21 @@ def score_axis(query: str, job_texts: list[str]) -> list[float]:
 
 
 def rank_jobs(job_texts: list[str]) -> list[float]:
-    """직무(roles) 점수 + 도메인(domains) 점수를 더한 결합 점수를 반환한다.
+    """직무(roles) 점수와 도메인(domains) 점수를 결합한 순위 점수를 반환한다.
 
-    둘 다 가까운 공고가 최상위, 하나만 가까운 공고가 그 다음 순위가 되도록 단순 합산한다.
-    roles/domains 중 비어 있는 축은 0으로 처리되어 나머지 축만으로 순위가 매겨진다.
+    roles/domains 둘 다 설정된 경우 곱으로 결합한다 — 한쪽 점수가 0에 가까우면 다른 쪽이
+    아무리 높아도 전체 점수가 낮아지도록 해, "직무 태그에 우연히 겹치는 단어가 있을 뿐
+    도메인은 전혀 안 맞는" 공고가 상위에 오르는 것을 막는다 (예: roles="기획"일 때 "재무기획"
+    처럼 문자열만 겹치고 도메인 관련성이 0에 가까운 공고가 실사용 중 최상위로 오른 문제가
+    실제로 있었다 — 단순 합산이었을 때는 role_score 하나만 높아도 총점이 커졌었다).
+
+    roles/domains 중 하나만 설정된 경우, 비어 있는 축은 0으로 고정되어 곱셈이 전부 0이
+    되므로 그 경우엔 합산으로 처리해 설정된 축만으로 순위를 매긴다.
     """
     role_scores = score_axis(config.RELEVANCE_ROLES, job_texts)
     domain_scores = score_axis(config.RELEVANCE_DOMAINS, job_texts)
+    if config.RELEVANCE_ROLES and config.RELEVANCE_DOMAINS:
+        return [r * d for r, d in zip(role_scores, domain_scores)]
     return [r + d for r, d in zip(role_scores, domain_scores)]
 
 

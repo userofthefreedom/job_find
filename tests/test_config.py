@@ -15,19 +15,14 @@ def test_parse_optional_int_blank_is_none():
 def test_parse_optional_int_parses_value():
     assert _parse_optional_int(" 5 ") == 5
 
-def test_load_config_reads_ini(tmp_path):
-    ini = tmp_path / "config.ini"
-    ini.write_text(
-        "[filter]\n"
-        "keywords = Python, 백엔드\n"
-        "locations = 서울\n"
-        "career_type = 경력\n"
-        "exp_min = 1\n"
-        "exp_max = 5\n"
-        "exclude_keywords = 교육생\n",
-        encoding="utf-8",
-    )
-    cfg = load_config(str(ini))
+def test_load_config_reads_env(monkeypatch):
+    monkeypatch.setenv("FILTER_KEYWORDS", "Python, 백엔드")
+    monkeypatch.setenv("FILTER_LOCATIONS", "서울")
+    monkeypatch.setenv("FILTER_CAREER_TYPE", "경력")
+    monkeypatch.setenv("FILTER_EXP_MIN", "1")
+    monkeypatch.setenv("FILTER_EXP_MAX", "5")
+    monkeypatch.setenv("FILTER_EXCLUDE_KEYWORDS", "교육생")
+    cfg = load_config()
     assert cfg.KEYWORDS == ["Python", "백엔드"]
     assert cfg.LOCATIONS == ["서울"]
     assert cfg.CAREER_TYPE == "경력"
@@ -35,19 +30,13 @@ def test_load_config_reads_ini(tmp_path):
     assert cfg.EXP_MAX == 5
     assert cfg.EXCLUDE_KEYWORDS == ["교육생"]
 
-def test_load_config_blank_fields_allow_all(tmp_path):
-    ini = tmp_path / "config.ini"
-    ini.write_text(
-        "[filter]\n"
-        "keywords =\n"
-        "locations =\n"
-        "career_type =\n"
-        "exp_min =\n"
-        "exp_max =\n"
-        "exclude_keywords =\n",
-        encoding="utf-8",
-    )
-    cfg = load_config(str(ini))
+def test_load_config_blank_fields_allow_all(monkeypatch):
+    for key in [
+        "FILTER_KEYWORDS", "FILTER_LOCATIONS", "FILTER_CAREER_TYPE",
+        "FILTER_EXP_MIN", "FILTER_EXP_MAX", "FILTER_EXCLUDE_KEYWORDS",
+    ]:
+        monkeypatch.setenv(key, "")
+    cfg = load_config()
     assert cfg.KEYWORDS == []
     assert cfg.LOCATIONS == []
     assert cfg.CAREER_TYPE is None
@@ -55,30 +44,41 @@ def test_load_config_blank_fields_allow_all(tmp_path):
     assert cfg.EXP_MAX is None
     assert cfg.EXCLUDE_KEYWORDS == []
 
-def test_load_config_missing_file_allows_all():
-    cfg = load_config("nonexistent_config.ini")
+def test_load_config_missing_env_allows_all(monkeypatch):
+    monkeypatch.delenv("FILTER_KEYWORDS", raising=False)
+    monkeypatch.delenv("FILTER_CAREER_TYPE", raising=False)
+    cfg = load_config()
     assert cfg.KEYWORDS == []
     assert cfg.CAREER_TYPE is None
 
-def test_load_config_providers_defaults_to_claude_cli():
-    cfg = load_config("nonexistent_config.ini")
+def test_load_config_providers_defaults_to_claude_cli(monkeypatch):
+    for key in [
+        "PROVIDER_PLANNER", "PROVIDER_PLAN_EVALUATOR",
+        "PROVIDER_WRITER", "PROVIDER_DRAFT_EVALUATOR",
+    ]:
+        monkeypatch.delenv(key, raising=False)
+    cfg = load_config()
     assert cfg.PROVIDER_PLANNER == "claude_cli"
     assert cfg.PROVIDER_PLAN_EVALUATOR == "claude_cli"
     assert cfg.PROVIDER_WRITER == "claude_cli"
     assert cfg.PROVIDER_DRAFT_EVALUATOR == "claude_cli"
 
-def test_load_config_providers_reads_ini(tmp_path):
-    ini = tmp_path / "config.ini"
-    ini.write_text(
-        "[providers]\n"
-        "planner = codex_cli\n"
-        "plan_evaluator = api:anthropic\n"
-        "writer = claude_cli\n"
-        "draft_evaluator = api:openai\n",
-        encoding="utf-8",
-    )
-    cfg = load_config(str(ini))
+def test_load_config_providers_reads_env(monkeypatch):
+    monkeypatch.setenv("PROVIDER_PLANNER", "codex_cli")
+    monkeypatch.setenv("PROVIDER_PLAN_EVALUATOR", "api:anthropic")
+    monkeypatch.setenv("PROVIDER_WRITER", "claude_cli")
+    monkeypatch.setenv("PROVIDER_DRAFT_EVALUATOR", "api:openai")
+    cfg = load_config()
     assert cfg.PROVIDER_PLANNER == "codex_cli"
     assert cfg.PROVIDER_PLAN_EVALUATOR == "api:anthropic"
     assert cfg.PROVIDER_WRITER == "claude_cli"
     assert cfg.PROVIDER_DRAFT_EVALUATOR == "api:openai"
+
+def test_load_config_relevance_defaults(monkeypatch):
+    for key in ["RELEVANCE_ROLES", "RELEVANCE_DOMAINS", "RELEVANCE_TOP_N", "RELEVANCE_MODEL"]:
+        monkeypatch.delenv(key, raising=False)
+    cfg = load_config()
+    assert cfg.RELEVANCE_ROLES == ""
+    assert cfg.RELEVANCE_DOMAINS == ""
+    assert cfg.RELEVANCE_TOP_N == 20
+    assert cfg.RELEVANCE_MODEL == "jhgan/ko-sroberta-multitask"

@@ -3,7 +3,7 @@
 사람인·원티드에서 채용 공고를 모아 조건에 맞는 것만 걸러내고, 관련성 순으로 정렬해주고,
 마음에 드는 공고는 AI가 자소서 초안까지 써주는 개인용 CLI 도구입니다.
 
-프로그래밍을 몰라도 설정 파일(`config.ini`, `profile.md`)만 텍스트 편집기로 고치면 되도록
+프로그래밍을 몰라도 설정 파일(`.env`, `profile.md`)만 텍스트 편집기로 고치면 되도록
 만들어졌습니다. 이 문서는 Python을 한 번도 안 써본 사람도 따라 할 수 있도록 처음부터
 끝까지 순서대로 설명합니다.
 
@@ -104,6 +104,14 @@ pip install -r requirements.txt
 정도 걸릴 수 있습니다.** 인터넷 연결 상태에 따라 더 걸릴 수도 있으니, 설치 중 멈춘 것처럼
 보여도 잠시 기다려주세요.
 
+### 3-3. 설정 파일 생성
+
+```bash
+cp .env.example .env
+```
+
+필터·관련성·AI provider 설정과 API 키를 전부 이 `.env` 파일 하나에서 관리합니다 ([4-2~4-4장](#4-처음-설정하기)에서 채웁니다). `.env`는 `.gitignore`에 포함되어 있어 Git에 올라가지 않습니다.
+
 설치가 끝나면 아래로 확인합니다.
 
 ```bash
@@ -154,78 +162,79 @@ cp profile.md.example profile.md
 **구체적으로 적을수록 자소서 품질이 좋아집니다.** "커뮤니케이션 능력이 좋음" 같은
 추상적인 문장보다 "무엇을 했고 결과가 어땠는지"를 숫자와 함께 적는 게 좋습니다.
 
-### 4-2. 필터 조건 설정 (`config.ini` `[filter]`)
+### 4-2. 필터 조건 설정 (`.env`)
 
-`config.ini`를 텍스트 편집기로 엽니다. `=` 뒤의 값만 바꾸면 되고, 코드 문법을 몰라도
+`.env`를 텍스트 편집기로 엽니다. `=` 뒤의 값만 바꾸면 되고, 코드 문법을 몰라도
 됩니다. 각 항목은 **비워두면 그 조건을 검사하지 않습니다** (전체 허용).
 
-```ini
-[filter]
+```bash
 # 공고 제목이나 직무 태그에 하나라도 포함되면 통과. 쉼표로 여러 개 지정
-keywords = 기획, PM
+FILTER_KEYWORDS=기획, PM
 
 # 근무 지역. 비워두면 전국 다 통과
-locations = 서울, 판교
+FILTER_LOCATIONS=서울, 판교
 
 # 신입 / 경력 / 신입·경력 중 하나. 비워두면 전체 허용
-career_type = 신입·경력
+FILTER_CAREER_TYPE=신입·경력
 
 # 경력 연차 범위 (숫자만). 하한/상한 중 하나만 비워둘 수도 있음
-exp_min =
-exp_max = 5
+FILTER_EXP_MIN=
+FILTER_EXP_MAX=5
 
 # 채용공고가 아닌 것으로 보고 제외할 단어
-exclude_keywords = 교육생, 무료교육, 설명회, 상시채용
+FILTER_EXCLUDE_KEYWORDS=교육생, 무료교육, 설명회, 상시채용
 ```
 
-**예시로 이해하기**: `keywords = 기획, PM`이면 제목에 "기획"이나 "PM"이 들어간 공고는
+**예시로 이해하기**: `FILTER_KEYWORDS=기획, PM`이면 제목에 "기획"이나 "PM"이 들어간 공고는
 바로 통과합니다. 제목엔 없어도 직무 태그가 정확히 "기획" 또는 "PM"인 공고도 통과하되,
-이때는 `exclude_keywords`에 있는 단어가 제목/고용형태에 있으면 탈락시켜 무료교육·설명회
-같은 노이즈를 걸러냅니다.
+이때는 `FILTER_EXCLUDE_KEYWORDS`에 있는 단어가 제목/고용형태에 있으면 탈락시켜 무료교육·
+설명회 같은 노이즈를 걸러냅니다.
 
 > **원티드 지역 관련 팁**: 원티드 API는 지역을 "경기"처럼 시/도 단위로만 알려줍니다.
-> "판교"·"성남" 공고까지 원티드에서 잡으려면 `locations`에 "경기"도 같이 넣어야 합니다
-> (다만 이 경우 원티드 쪽은 경기 전역 공고가 함께 통과되는 트레이드오프가 있습니다).
+> "판교"·"성남" 공고까지 원티드에서 잡으려면 `FILTER_LOCATIONS`에 "경기"도 같이 넣어야
+> 합니다 (다만 이 경우 원티드 쪽은 경기 전역 공고가 함께 통과되는 트레이드오프가 있습니다).
 
-### 4-3. 관련성 랭킹 설정 (`config.ini` `[relevance]`)
+### 4-3. 관련성 랭킹 설정 (`.env`)
 
-`keywords`보다 한 단계 더 똑똑하게, 의미가 비슷한 공고까지 잡아서 순위를 매기는 기능입니다.
-**로컬에서 도는 무료 AI 모델**을 쓰기 때문에 비용이 들지 않습니다 (다만 최초 실행 시
-모델 파일을 자동으로 내려받는데, 수백 MB라 시간이 좀 걸릴 수 있습니다).
+`FILTER_KEYWORDS`보다 한 단계 더 똑똑하게, 의미가 비슷한 공고까지 잡아서 순위를 매기는
+기능입니다. **로컬에서 도는 무료 AI 모델**을 쓰기 때문에 비용이 들지 않습니다 (다만 최초
+실행 시 모델 파일을 자동으로 내려받는데, 수백 MB라 시간이 좀 걸릴 수 있습니다).
 
-```ini
-[relevance]
+```bash
 # 직무 — "기획, PM"이라고 적으면 문자 그대로 안 겹쳐도 의미가 비슷한 공고를 찾아줌
-roles = 기획, PM
+RELEVANCE_ROLES=기획, PM
 
 # 도메인/업종 — 직무와 도메인 둘 다 가까운 공고가 최상위로 옴
-domains = 커머스, 게임
+RELEVANCE_DOMAINS=커머스, 게임
 
 # 상위 몇 건만 남길지
-top_n = 20
+RELEVANCE_TOP_N=20
 ```
 
-`roles`와 `domains`를 **둘 다 비워두면 이 단계 자체를 건너뜁니다.** 처음에는 비워두고
-`collect`만 써보다가, 나중에 필요하면 채워도 됩니다.
+`RELEVANCE_ROLES`와 `RELEVANCE_DOMAINS`를 **둘 다 비워두면 이 단계 자체를 건너뜁니다.**
+처음에는 비워두고 `collect`만 써보다가, 나중에 필요하면 채워도 됩니다.
 
-**예시**: `roles = 기획, PM`, `domains = 커머스, 게임`으로 설정하면 "게임 기획 PM"이
-1순위, "반도체 개발 PM"이나 "게임 마케팅팀"처럼 하나만 겹치는 공고가 그 다음 순위로
-정렬됩니다.
+**예시**: `RELEVANCE_ROLES=기획, PM`, `RELEVANCE_DOMAINS=커머스, 게임`으로 설정하면
+"게임 기획 PM"이 1순위, "반도체 개발 PM"이나 "게임 마케팅팀"처럼 하나만 겹치는 공고가
+그 다음 순위로 정렬됩니다 (둘 다 설정하면 두 점수를 곱해 결합하므로, 한쪽이 전혀 안
+맞으면 총점도 낮아집니다).
 
 > **주의**: 이미 `[자소서]`로 선택해둔 공고는 순위와 무관하게 항상 보존되니, 관련성 순위가
 > 낮아져도 진행 중인 자소서 작업이 사라질 걱정은 하지 않아도 됩니다.
 
+> **알려진 한계**: 짧은 공고 제목만으로는 임베딩 모델이 도메인(예: "IT"·"웹"·"앱")을
+> 뚜렷하게 구분하지 못하는 경우가 실사용 중 확인됐습니다. `RELEVANCE_DOMAINS`를 설정해도
+> 완벽하게 정확한 순위를 기대하기보다는 "대략적인 우선순위 참고" 정도로 쓰는 게 좋습니다.
+
 ### 4-4. AI Provider 정하기
 
-자소서 초안 작성(`write` 명령)에 어떤 AI를 쓸지 정합니다. `config.ini`의 `[providers]`
-섹션에서 정합니다.
+자소서 초안 작성(`write` 명령)에 어떤 AI를 쓸지 `.env`에서 정합니다.
 
-```ini
-[providers]
-planner = claude_cli         # 자소서 작성 계획을 세우는 역할
-plan_evaluator = claude_cli  # 그 계획을 냉정하게 평가하는 역할
-writer = claude_cli          # 실제 자소서 문장을 쓰는 역할
-draft_evaluator = claude_cli # 작성된 초안을 평가하는 역할
+```bash
+PROVIDER_PLANNER=claude_cli         # 자소서 작성 계획을 세우는 역할
+PROVIDER_PLAN_EVALUATOR=claude_cli  # 그 계획을 냉정하게 평가하는 역할
+PROVIDER_WRITER=claude_cli          # 실제 자소서 문장을 쓰는 역할
+PROVIDER_DRAFT_EVALUATOR=claude_cli # 작성된 초안을 평가하는 역할
 ```
 
 네 역할 각각 아래 중 하나를 고를 수 있고, 섞어 써도 됩니다.
@@ -242,10 +251,9 @@ draft_evaluator = claude_cli # 작성된 초안을 평가하는 역할
 
 `api:anthropic`이나 `api:openai`를 쓰려면:
 
-1. `.env.example`을 복사해 `.env` 파일을 만듭니다: `cp .env.example .env`
-2. [console.anthropic.com](https://console.anthropic.com) 또는
+1. [console.anthropic.com](https://console.anthropic.com) 또는
    [platform.openai.com](https://platform.openai.com)에서 API 키를 발급받습니다.
-3. `.env` 파일을 열어 아래처럼 키를 채웁니다.
+2. (3-3에서 이미 만든) `.env` 파일을 열어 아래처럼 키를 채웁니다.
 
 ```
 ANTHROPIC_API_KEY=sk-ant-여기에실제키
@@ -267,7 +275,7 @@ OPENAI_API_KEY=sk-여기에실제키
 python jobfind.py collect
 ```
 
-사람인·원티드에서 최신 공고를 가져와 `config.ini [filter]` 조건에 맞는 것만
+사람인·원티드에서 최신 공고를 가져와 `.env`의 `FILTER_*` 조건에 맞는 것만
 `output/jobs_all.txt`에 추가합니다. 이미 저장된 공고는 다시 추가되지 않습니다.
 
 ```
@@ -454,9 +462,9 @@ python jobfind.py write
 | `pip install` 이 한참 동안 멈춘 것처럼 보임 | `sentence-transformers`/`torch` 설치가 원래 오래 걸립니다. 5~10분 기다려보세요 |
 | `collect` 실행 시 "조회: 0건" | 인터넷 연결 확인. 사람인·원티드 중 한쪽만 실패해도 나머지는 정상 처리되니, 콘솔에 `[사람인]`/`[원티드]` 오류 메시지가 있는지 확인 |
 | `write` 실행 시 `claude CLI 실행 실패` | Claude Code CLI가 설치 안 됐거나 로그인이 풀렸을 수 있음. 터미널에 `claude`만 입력했을 때 정상적으로 대화가 시작되는지 확인 |
-| `write` 실행 시 `ANTHROPIC_API_KEY가 .env에 설정되어 있지 않습니다` | `config.ini [providers]`에서 `api:anthropic`을 선택했는데 `.env`에 키를 안 넣은 경우. [4-4장](#4-4-ai-provider-정하기) 참고 |
+| `write` 실행 시 `ANTHROPIC_API_KEY가 .env에 설정되어 있지 않습니다` | `.env`에서 `PROVIDER_*`를 `api:anthropic`으로 선택했는데 `ANTHROPIC_API_KEY`를 안 넣은 경우. [4-4장](#4-4-ai-provider-정하기) 참고 |
 | `[오류] 자소서는 최대 4개까지만...` | `jobs_all.txt`에서 `[자소서]` 마커가 5개 이상 붙어 있음. 일부를 `[ ]`로 되돌린 뒤 다시 `write` 실행 |
-| 자소서 초안 안에 "WebFetch 권한이 없어..." 같은 문구가 있음 | 정상 동작입니다 — 없는 정보를 지어내지 않고 한계를 밝힌 것. `draft_review.md`의 지적을 참고해 직접 보완하세요 |
+| 자소서 초안 맨 앞에 "공고 원문을 확인하지 못해 표준 구성으로 작성했습니다" 같은 안내가 있음 | 정상 동작입니다 — 없는 정보를 지어내지 않고 가정한 부분을 밝힌 것. 그래도 본문은 끝까지 작성되니 그대로 참고하되, `draft_review.md`의 지적과 함께 실제 공고 내용으로 다듬으세요 |
 | 사람인 공고 자소서가 원티드 공고보다 내용이 부실함 | 알려진 한계입니다. 사람인은 상세 설명이 자바스크립트로 렌더링돼 있어 자동으로 가져올 수 없습니다. `materials/notes.md`에 직접 상세 내용을 적어두면 보완됩니다 |
 
 ---

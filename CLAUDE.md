@@ -10,7 +10,7 @@
   Phase 8 변경 이력 참고). 수집부터 자소서 작성까지 전부 `python jobfind.py <command>`로
   사용자가 직접 트리거한다.
 - **AI provider 다각화**: 자소서 파이프라인의 각 역할(계획/계획평가/작성/초안평가)은
-  Claude CLI(`claude -p`) · Codex CLI(`codex exec`) · Anthropic/OpenAI API 중 `config.ini`에서
+  Claude CLI(`claude -p`) · Codex CLI(`codex exec`) · Anthropic/OpenAI API 중 `.env`에서
   선택한 백엔드로 동작한다. 어디서 실행하든(터미널/IDE 확장/대화 중 요청) 동일한 CLI
   진입점을 쓰므로 실행 위치는 자유롭다.
 - **관련성 평가는 비용 없는 로컬 HuggingFace 임베딩 모델**로 처리한다 (LLM 호출 아님).
@@ -34,7 +34,9 @@
     Phase 11 리스크 참고)
   - `api:anthropic` / `api:openai`: `requests`로 Messages/Chat Completions API 직접 호출
     (`.env`의 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 사용, 호출당 과금)
-- **Config / secrets**: `python-dotenv` — API 키 로드용
+- **Config / secrets**: `python-dotenv` — 필터·관련성·provider 설정과 API 키를 전부 `.env`
+  하나에서 로드 (v3 초반엔 `config.ini` + `.env`로 나뉘어 있었으나, 결국 둘 다 사람이 직접
+  입력하는 파일이라 실사용 피드백으로 `.env` 하나로 통합함)
 - **Runtime**: Windows 로컬, 사용자가 터미널에서 직접 실행하는 CLI (`jobfind.py`)
 - **Output**: UTF-8 txt 파일(`output/jobs_all.txt`) + 공고별 자소서 결과
   (`output/cover_letters/<공고ID>/`)
@@ -46,22 +48,21 @@
 ├── jobfind.py                  # 얇은 진입점 — jobfind.cli.main() 호출
 ├── jobfind/
 │   ├── cli.py                   # argparse 서브커맨드: collect / evaluate / add / select / write
-│   ├── config.py                 # config.ini 로드 (filter/relevance/providers 섹션)
+│   ├── config.py                 # .env 로드 (필터/관련성/provider 설정 + API 키)
 │   ├── collectors/
 │   │   ├── saramin.py            # 사람인 목록 스크래핑 + 단건 상세 조회(og:description)
 │   │   └── wanted.py             # 원티드 목록/상세 API 호출
 │   ├── dedup.py                  # 플랫폼 간 중복 제거
-│   ├── filters.py                # config.ini 기반 1차 필터 (키워드/지역/경력유형/연차)
+│   ├── filters.py                # .env 기반 1차 필터 (키워드/지역/경력유형/연차)
 │   ├── relevance.py              # HF 임베딩 기반 2차 필터 — 직무x도메인 랭킹, 상위 top_n만 유지
 │   ├── selection.py               # [자소서] 마커 스캔, materials/ 폴더 준비
 │   ├── storage.py                # jobs_all.txt/dismissed_ids.txt 읽기·쓰기, 블록 파싱, 마커 처리
 │   ├── providers/                # AI provider 추상화 (claude_cli/codex_cli/api)
 │   └── pipeline/                 # 자소서 오케스트레이션 (prompts.py, orchestrator.py)
-├── config.ini                    # 필터·관련성·provider 설정 — INI 형식, 코드 지식 없이 수정 가능
 ├── profile.md                    # 사용자 이력/자기소개 자유 텍스트 (.gitignore 대상)
 ├── profile.md.example            # profile.md 템플릿 (Git 포함)
 ├── requirements.txt
-├── .env / .env.example           # API 키 (.env는 Git 제외, api:* provider 쓸 때만 필요)
+├── .env / .env.example           # 필터·관련성·provider 설정 + API 키 전부 여기 (.env는 Git 제외)
 ├── .gitignore
 ├── README.md
 ├── CLAUDE.md
@@ -92,6 +93,9 @@ source venv/Scripts/activate
 
 # 의존성 설치 (sentence-transformers·torch 포함이라 최초 설치에 시간이 걸릴 수 있음)
 pip install -r requirements.txt
+
+# 설정 파일 생성 (필터·관련성·provider·API 키 전부 여기서 관리)
+cp .env.example .env
 ```
 
 ### 실행
@@ -131,15 +135,22 @@ python -m pytest tests/ -v
 
 - API access-key는 반드시 `.env` 파일에만 저장하고, 코드에 직접 쓰지 않는다.
 - `.env` 파일은 `.gitignore`에 포함해 절대 커밋하지 않는다.
-- **`.env` 파일은 Claude가 수정하지 않는다.** 키 값 변경은 사용자가 직접 한다.
+- **API 키(`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`SARAMIN_ACCESS_KEY`) 값은 Claude가 채우지
+  않는다.** 사용자가 직접 발급받아 입력한다. v3에서 `.env`가 필터·관련성·provider 설정까지
+  통합해서 맡게 됐으므로(`config.ini` 폐기, 아래 참고), **키가 아닌 나머지 설정 값은** 사용자가
+  명시적으로 요청한 마이그레이션/설정 작업의 일부로 Claude가 수정할 수 있다 — 이 구분(키 값
+  vs 일반 설정 값)을 지킨다.
 - `.env.example`에는 실제 키 값 없이 변수 이름과 형식만 기재한다.
 - `profile.md`(사용자 이력서/자기소개)는 개인정보이므로 `.gitignore`에 포함해 커밋하지 않는다.
   실제 내용 없는 `profile.md.example` 템플릿만 커밋한다.
 
 ```
-# .env.example
+# .env.example (발췌 — 전체 항목은 실제 파일 참고)
+FILTER_KEYWORDS=
+RELEVANCE_ROLES=
+PROVIDER_PLANNER=claude_cli
 # 사람인 공식 API 승인 시: SARAMIN_ACCESS_KEY=your_access_key_here
-# config.ini [providers]에서 api:anthropic / api:openai 백엔드를 쓸 때만 필요:
+# api:anthropic / api:openai 백엔드를 쓸 때만 필요:
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
 # OPENAI_API_KEY=your_openai_api_key_here
 ```
@@ -167,6 +178,13 @@ AI provider 추상화, 자소서 오케스트레이션 파이프라인, 문서 �
 기존 v3 로드맵 초안(Phase 5~7 — 실행 로그/이상 감지, 필터 고도화, 지원 상태 추적)은 구현에
 착수하지 못한 채 우선순위가 밀렸다. 아이디어 자체는 여전히 유효한 개선 후보다 — 작업 재개 시
 `docs/PLAN.md`의 "구현 전략" 인트로와 Phase 5~7 섹션을 먼저 확인한다.
+
+Phase 14(실사용 피드백 반영, `docs/PLAN.md` 참고)에서 `config.ini` → `.env` 통합, 관련성 랭킹
+결합식(합→곱) 수정, writer가 정보 부족해도 초안 작성을 거부하지 않도록 프롬프트 보강을
+완료했다. 다만 관련성 랭킹 품질 문제의 더 근본적인 원인 — `jhgan/ko-sroberta-multitask`가
+짧은 공고 제목에서 "IT/웹/앱" 같은 도메인을 잘 구분하지 못하는 것으로 실측됨 — 은 결합식
+수정만으로는 완전히 해결되지 않는다. 재검토 시 `docs/PLAN.md` Phase 14의 실측 기록을 먼저
+확인할 것 (다른 임베딩 모델 시도, job_text에 회사명 포함 등이 후보).
 
 ## Scraping & API Constraints
 

@@ -1,6 +1,6 @@
 # SPEC — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-14 (v3 재설계 반영) | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-14 (Phase 14 실사용 피드백 반영) | 기반 문서: PRD.md_
 
 ---
 
@@ -9,7 +9,7 @@ _작성일: 2026-06-30 | 최종 수정: 2026-08-14 (v3 재설계 반영) | 기�
 ```
 jobfind.py                    ← 얇은 진입점. jobfind.cli.main() 호출
 jobfind/cli.py                ← 서브커맨드 조율: collect / evaluate / add / select / write
-jobfind/config.py             ← config.ini 로드 (filter/relevance/providers 섹션)
+jobfind/config.py             ← .env 로드 (filter/relevance/providers 설정 + API 키)
 jobfind/collectors/saramin.py ← 사람인 목록 스크래핑 + 단건 상세 조회
 jobfind/collectors/wanted.py  ← 원티드 목록/상세 API 호출
 jobfind/dedup.py              ← 플랫폼 간 중복 제거
@@ -19,7 +19,6 @@ jobfind/selection.py          ← [자소서] 마커 스캔, materials/ 폴더 �
 jobfind/storage.py            ← jobs_all.txt/dismissed_ids.txt 입출력, 블록 파싱, 마커 처리
 jobfind/providers/            ← AI provider 추상화 (claude_cli/codex_cli/api)
 jobfind/pipeline/             ← 자소서 오케스트레이션 (prompts.py, orchestrator.py)
-config.ini                    ← 필터·관련성·provider 설정 (INI, 코드 문법 불필요)
 ```
 
 v1~v2는 "별도 모듈 파일은 만들지 않는다"는 원칙의 단일 스크립트(`fetch_jobs.py`)였다. v3
@@ -27,8 +26,10 @@ v1~v2는 "별도 모듈 파일은 만들지 않는다"는 원칙의 단일 스�
 파일 관리가 불가능해져 이 원칙을 폐기하고 `jobfind/` 패키지로 전환했다. 기능 단위로 모듈을
 분리하되 과도한 추상화(불필요한 클래스 계층 등)는 여전히 피한다.
 
-설정은 Python 모듈이 아닌 `config.ini`로 관리한다 — 표준 라이브러리 `configparser`로 파싱하며,
-일반 사용자가 Python 리스트/None 문법을 몰라도 `key = value` 형태로 바로 수정할 수 있게 하기 위함이다.
+설정은 Python 모듈이 아닌 `.env`로 관리한다 — `python-dotenv`로 로드하며, 일반 사용자가
+Python 리스트/None 문법을 몰라도 `KEY=value` 형태로 바로 수정할 수 있게 하기 위함이다.
+v3 초반엔 `config.ini`(필터·관련성·provider)와 `.env`(API 키)가 분리돼 있었으나, 결국 둘 다
+사람이 직접 입력하는 파일이라는 실사용 피드백으로 Phase 14에서 `.env` 하나로 통합했다.
 
 ---
 
@@ -202,45 +203,43 @@ def deduplicate_cross_platform(saramin: list[dict], wanted: list[dict]) -> list[
 
 ---
 
-## 3. 필터 명세 (`config.ini`)
+## 3. 필터 명세 (`.env`)
 
 ### 3-1. 설정 변수
 
-```ini
-# config.ini
-[filter]
-
-keywords = Python, 백엔드
+```bash
+# .env
+FILTER_KEYWORDS=Python, 백엔드
 # 공고 title 또는 keyword 필드에 하나라도 포함되면 통과 (대소문자 무시)
 # 비워두면 전체 허용
 
-locations = 서울, 판교
+FILTER_LOCATIONS=서울, 판교
 # location 필드에 하나라도 포함되면 통과
 # 비워두면 전체 허용
 
-career_type =
+FILTER_CAREER_TYPE=
 # 신입 | 경력 | 신입·경력 | 비워두면 전체 허용
 
-exp_min = 1   # 최소 경력 연수 (비워두면 하한 없음)
-exp_max = 5   # 최대 경력 연수 (비워두면 상한 없음)
+FILTER_EXP_MIN=1   # 최소 경력 연수 (비워두면 하한 없음)
+FILTER_EXP_MAX=5   # 최대 경력 연수 (비워두면 상한 없음)
 
-exclude_keywords = 교육생, 무료교육, 설명회, 상시채용
+FILTER_EXCLUDE_KEYWORDS=교육생, 무료교육, 설명회, 상시채용
 # keywords 가 title 이 아닌 keyword(직무 태그)에만 매칭된 경우에 한해 검사.
 # title 또는 job_type 에 이 목록의 단어가 포함되면 탈락 (채용 공고가 아닌 것으로 간주)
 ```
 
-### 3-1a. `config.ini` 로드 (`load_config()`)
+### 3-1a. `.env` 로드 (`load_config()`)
 
 ```python
-def load_config(path: str) -> SimpleNamespace:
-    """configparser 로 config.ini 를 읽어 KEYWORDS/LOCATIONS/CAREER_TYPE/
-    EXP_MIN/EXP_MAX/EXCLUDE_KEYWORDS 속성을 가진 SimpleNamespace 로 변환한다."""
+def load_config() -> SimpleNamespace:
+    """os.environ(.env, python-dotenv로 로드)에서 KEYWORDS/LOCATIONS/CAREER_TYPE/
+    EXP_MIN/EXP_MAX/EXCLUDE_KEYWORDS 등을 읽어 SimpleNamespace 로 변환한다."""
 ```
 
 - 쉼표(`,`)로 구분된 값은 리스트로 분리 (`_parse_list`), 앞뒤 공백 제거, 빈 항목 무시
 - 빈 문자열은 `None`으로 취급 (`_parse_optional_int`, `career_type`) → 전체 허용
-- `config.ini` 파일이 없거나 `[filter]` 섹션이 없으면 모든 값을 빈 값으로 간주 (전체 허용, 오류 아님)
-- fetch_jobs.py 모듈 로드 시점에 1회 `config = load_config(CONFIG_PATH)`로 전역 로드
+- 환경변수가 아예 없어도 빈 값으로 간주 (전체 허용, 오류 아님)
+- `jobfind/config.py` 모듈 로드 시점에 1회 `config = load_config()`로 전역 로드
 
 ### 3-2. 필터 적용 로직
 
@@ -516,7 +515,7 @@ jobfind.py collect
  ├─ process_x_markers()            → [X] 블록 제거 + dismissed_ids.txt 기록 (§4-5)
  ├─ skip_ids = active | dismissed
  ├─ jobs = fetch_all()             → fetch_saramin_all() + fetch_wanted_all() + dedup
- ├─ filtered = filter_jobs(jobs)   → config.ini [filter] 조건 적용 (§3)
+ ├─ filtered = filter_jobs(jobs)   → .env FILTER_* 조건 적용 (§3)
  ├─ new_jobs = filtered - skip_ids
  ├─ write_jobs(new_jobs)           → jobs_all.txt 에 append
  └─ print_summary(...)
@@ -555,20 +554,43 @@ HTML 파서는 표준 라이브러리 `html.parser`를 사용한다 (별도 설�
 
 ---
 
-## 9. 환경 변수
+## 9. 환경 변수 (`.env`)
 
-`config.ini [providers]`에서 `api:anthropic` / `api:openai` 백엔드를 쓸 때만 필요하다.
-`claude_cli` / `codex_cli`만 쓰면 `.env`가 없어도 동작한다.
+Phase 14부터 필터(§3)·관련성(§11)·provider(§12) 설정과 API 키를 전부 `.env` 하나에서
+관리한다. `.env.example`을 복사해 `.env`를 만들고 채운다 (`cp .env.example .env`). 모든
+항목은 비워둬도 동작한다 — 필터/관련성은 "전체 허용/단계 건너뜀"으로, provider는
+`claude_cli` 기본값으로 처리된다.
 
 ```
-# .env.example
-# 사람인 공식 API 승인 시 아래 키를 .env 파일에 추가:
-# SARAMIN_ACCESS_KEY=your_access_key_here
+# .env.example (발췌 — 전체 목록은 실제 파일 참고)
+FILTER_KEYWORDS=
+FILTER_LOCATIONS=
+FILTER_CAREER_TYPE=
+FILTER_EXP_MIN=
+FILTER_EXP_MAX=
+FILTER_EXCLUDE_KEYWORDS=교육생, 무료교육, 설명회, 상시채용
 
-# config.ini [providers]에서 api:anthropic / api:openai 백엔드를 쓸 때만 필요:
-# ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# OPENAI_API_KEY=your_openai_api_key_here
+RELEVANCE_ROLES=
+RELEVANCE_DOMAINS=
+RELEVANCE_TOP_N=20
+RELEVANCE_MODEL=jhgan/ko-sroberta-multitask
+
+PROVIDER_PLANNER=claude_cli
+PROVIDER_PLAN_EVALUATOR=claude_cli
+PROVIDER_WRITER=claude_cli
+PROVIDER_DRAFT_EVALUATOR=claude_cli
+
+# api:anthropic / api:openai 백엔드를 쓸 때만 필요:
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+
+# 사람인 공식 API 승인 시:
+SARAMIN_ACCESS_KEY=
 ```
+
+API 키(`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`SARAMIN_ACCESS_KEY`) 값은 사용자가 직접
+채운다 — Claude가 대신 입력하지 않는다 (`CLAUDE.md` Security Rules 참고). 나머지 설정
+값은 사용자가 명시적으로 요청한 설정/마이그레이션 작업의 일부로 수정할 수 있다.
 
 ---
 
@@ -576,21 +598,21 @@ HTML 파서는 표준 라이브러리 `html.parser`를 사용한다 (별도 설�
 
 ### 11-1. 목적
 
-`config.ini [filter] keywords`는 문자열 완전/부분 일치 기반이라 "기획"으로 설정하면 의미상
-가까운 "프로덕트 오너"·"그로스 매니저" 같은 공고를 못 잡는다. 관련성 평가는 로컬 임베딩
-모델로 의미 기반 유사도를 계산해 이 한계를 보완한다. LLM 호출이 아니므로 비용이 들지 않는다.
+`FILTER_KEYWORDS`는 문자열 완전/부분 일치 기반이라 "기획"으로 설정하면 의미상 가까운
+"프로덕트 오너"·"그로스 매니저" 같은 공고를 못 잡는다. 관련성 평가는 로컬 임베딩 모델로
+의미 기반 유사도를 계산해 이 한계를 보완한다. LLM 호출이 아니므로 비용이 들지 않는다.
 
-### 11-2. 설정 (`config.ini [relevance]`)
+### 11-2. 설정 (`.env`)
 
-```ini
-[relevance]
-roles = 기획, PM        # 직무 — 비워두면 이 축은 0점 처리
-domains = 커머스, 게임  # 도메인/업종 — 비워두면 이 축은 0점 처리
-top_n = 20               # 상위 몇 건만 jobs_all.txt에 남길지
-model = jhgan/ko-sroberta-multitask
+```bash
+RELEVANCE_ROLES=기획, PM        # 직무 — 비워두면 이 축은 0점 처리
+RELEVANCE_DOMAINS=커머스, 게임  # 도메인/업종 — 비워두면 이 축은 0점 처리
+RELEVANCE_TOP_N=20               # 상위 몇 건만 jobs_all.txt에 남길지
+RELEVANCE_MODEL=jhgan/ko-sroberta-multitask
 ```
 
-`roles`와 `domains`가 둘 다 비어 있으면 관련성 평가 단계 전체를 건너뛴다.
+`RELEVANCE_ROLES`와 `RELEVANCE_DOMAINS`가 둘 다 비어 있으면 관련성 평가 단계 전체를
+건너뛴다.
 
 ### 11-3. 점수 계산
 
@@ -600,29 +622,48 @@ def score_axis(query: str, job_texts: list[str]) -> list[float]:
     ...
 
 def rank_jobs(job_texts: list[str]) -> list[float]:
-    # role_scores + domain_scores 를 더한 결합 점수.
+    # roles/domains 둘 다 설정된 경우 role_score * domain_score (곱셈 결합).
+    # 하나만 설정된 경우 role_score + domain_score (나머지 축은 0이라 실질적으로 그 축만 반영).
     ...
 ```
 
 - `job_texts`는 각 공고의 `title + " " + keyword`.
-- 직무·도메인 둘 다 가까운 공고가 최상위, 하나만 가까운 공고는 그 다음 순위가 되도록
-  단순 합산한다 (가중치 없음).
+- **곱셈 결합(Phase 14부터)**: roles/domains 둘 다 설정된 경우 두 점수를 곱한다 — 한쪽이
+  0에 가까우면 다른 쪽이 아무리 높아도 총점이 낮아진다. 원래는 단순 합산이었는데, 실사용
+  검증에서 "재무기획"처럼 `roles="기획"`과 문자열만 우연히 겹치고 도메인은 전혀 안 맞는
+  공고가 role_score 하나만으로 상위에 오르는 문제가 발견되어 변경했다.
+- roles/domains 중 하나만 설정된 경우, 비어 있는 축은 `score_axis`가 0으로 고정 반환하므로
+  곱셈이면 전체가 0이 된다 — 이 경우엔 합산으로 처리해 설정된 축만으로 순위를 매긴다.
 - 임베딩 모델은 `functools.lru_cache`로 프로세스당 1회만 로드한다.
+
+> **실측 한계**: 곱셈 결합이 이론적으로는 "직무만 겹치고 도메인은 무관한" 공고를 눌러야
+> 하지만, 실사용 검증에서 `RELEVANCE_DOMAINS="IT, 웹, 앱"` 같은 짧은 도메인 질의에 대해
+> 사전학습 모델 자체가 사무행정 공고와 실제 IT PM 공고를 뚜렷하게 구분하지 못하는(둘 다
+> 0.4~0.5대로 몰리는) 사례가 확인됐다. 이 경우 두 후보의 domain_score 자체가 비슷해 곱셈을
+> 적용해도 순위가 크게 바뀌지 않는다 — 결합식이 아니라 모델의 도메인 판별력 자체가 원인이라,
+> 도메인 질의를 문장형으로 바꿔봐도(예: "IT 서비스, 웹 서비스, 모바일 앱 개발 회사") 개선되지
+> 않음을 확인했다. 다른 임베딩 모델 시도나 `job_text`에 회사명을 포함시키는 방안은 향후 검토
+> 과제로 남긴다 (`docs/PLAN.md` Phase 14 참고).
 
 ### 11-4. 적용 (`evaluate_relevance()`)
 
 ```
 evaluate_relevance(jobs_path):
-  1. jobs_all.txt 를 블록 단위로 파싱, [X] 블록은 그대로 보존
-  2. 활성 블록마다 결합 점수 계산
-  3. 점수 내림차순 정렬
-  4. 상위 top_n건만 남기고, 순위 순서대로 jobs_all.txt 재작성
-  5. 순위 밖 공고 수를 콘솔에 출력
+  1. jobs_all.txt 를 블록 단위로 파싱
+  2. [X] 블록은 그대로 보존, [자소서] 블록은 랭킹 대상에서 제외하고 항상 보존
+  3. 나머지 활성 블록마다 결합 점수 계산
+  4. 점수 내림차순 정렬
+  5. 상위 top_n건만 남기고, [자소서] 블록 + 순위 순서대로 jobs_all.txt 재작성
+  6. 순위 밖 공고 수를 콘솔에 출력
 ```
 
 - 순위 밖으로 밀린 공고는 `[X]`와 달리 `dismissed_ids.txt`에 기록되지 않는다 — 다음 수집에서
   경쟁 구도가 바뀌면 다시 상위 `top_n`에 들 수 있어야 하기 때문이다 (영구 제외가 아니라
   "이번엔 순위 밖"이라는 의미).
+- **`[자소서]` 블록 보호(Phase 14부터)**: 이미 `[자소서]`로 선택된 공고는 랭킹 대상에서
+  아예 제외하고 무조건 보존한다. 실사용 중 `select`로 `materials/`를 준비해두고 아직
+  `write`를 돌리지 않은 상태에서 `evaluate`를 다시 실행하면 순위 밖으로 밀려 파일에서
+  통째로 사라지는 문제가 발견되어 수정했다 — 에러 없이 조용히 사라져서 더 위험했다.
 - 아무 것도 잘리지 않아도(전체 공고 수 ≤ top_n) 순위 순서를 파일에 반영하기 위해 항상
   다시 쓴다.
 
@@ -630,7 +671,8 @@ evaluate_relevance(jobs_path):
 
 사전학습 모델(`jhgan/ko-sroberta-multitask`)만 그대로 사용한다. 파인튜닝은 라벨 데이터가
 없어 범위 밖이다 — `[X]` 마커로 걸러낸 이력이 쌓이면 이후 파인튜닝 데이터로 활용할 수 있다는
-점만 기록해둔다 (착수 시점 미정).
+점만 기록해둔다 (착수 시점 미정). 11-3의 실측 한계도 파인튜닝으로 개선될 가능성이 있는
+영역이다.
 
 ---
 
@@ -712,6 +754,12 @@ draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
 - 초안 평가 이후 자동 재작성 루프는 없다. 평가 의견은 `draft_review.md`로 그대로 남기고,
   재작성이 필요하면 사용자가 다시 `write`를 실행하도록 한다 (설계 원칙, `docs/PLAN.md`
   Phase 12 참고).
+- **작성 거부 금지(Phase 14부터)**: `writer_prompt`의 시스템 프롬프트에 "공고 정보가 부족해도
+  초안 작성 자체를 거부하지 마라"는 지시를 명시했다. 실사용 검증에서 사람인처럼 상세 설명을
+  못 가져온 공고 중 일부가 초안 없이 "정보가 부족하다"는 안내문만 반환하는 경우가 있었다 —
+  다른 공고는 같은 상황에서도 표준 구성으로 초안을 작성했으니 모델의 판단에 따라 동작이
+  일관되지 않았던 것. 이제는 항상 실제 초안 본문을 작성하고, 가정한 부분과 추가로 확인이
+  필요한 사항은 본문과 분리된 안내 문구로만 짧게 남기도록 지시한다.
 
 ### 13-2. `profile.md`
 
@@ -751,3 +799,4 @@ draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
 | 2026-07-09 | 설정 파일을 `config.py`(Python) → `config.ini`(INI)로 전환 — 일반 사용자가 코드 문법 없이 편집 가능하도록 `configparser` 기반 `load_config()` 도입; 루트 정리 — `PROGRESS.md`, `TEST_RESULT.md`를 `docs/`로 이동 |
 | 2026-07-10 | 실 데이터 검증에서 발견된 필터 오탐/누락 수정: (1) 키워드 태그 매칭을 부분 문자열 → 완전 일치로 변경(짧은 키워드가 무관한 복합 태그에 우연히 걸리는 문제 해결), (2) 경력 유형 필터에 동등 표현 허용(`_CAREER_EQUIVALENTS`) 추가 — "신입·경력"이 "신입"/"경력"/"경력무관"/구체적 연차 표기도 포함하도록 개선, (3) 원티드 시/도 단위 지역 한계를 config.ini 문서화(예: "경기" 추가 안내) |
 | 2026-08-14 | v3 재설계(Phase 8~13): `fetch_jobs.py` 단일 스크립트 → `jobfind/` 패키지 전환; 관련성 평가를 role_description+threshold 이진 필터에서 roles/domains 결합 랭킹(top_n)으로 재설계; `jobfind.py add`(수동 추가)·`select`(`[자소서]` 마커, materials/)·`write`(자소서 파이프라인) 커맨드 추가; AI provider 추상화(`claude_cli`/`codex_cli`/`api:anthropic`/`api:openai`) 추가; 자소서 계획→계획평가→(재작성)→작성→초안평가 파이프라인 추가; 원티드 상세 API 기반 공고 설명 보강 추가(사람인은 JS 렌더링 한계로 미적용) |
+| 2026-08-14 | Phase 14(실사용 피드백): `config.ini` → `.env` 통합(필터·관련성·provider 설정 전부); 관련성 결합식을 합산 → 곱셈으로 변경(roles/domains 둘 다 설정 시) — 직무 쪽 문자열만 우연히 겹치고 도메인은 무관한 공고가 상위에 오르는 문제 완화, 다만 임베딩 모델 자체의 도메인 판별력 한계는 남아 있음을 실측으로 확인; `evaluate_relevance()`가 `[자소서]` 선택 공고를 랭킹 대상에서 제외하고 항상 보존하도록 수정(순위 밖으로 밀려 파일에서 사라지던 문제); `writer_prompt`에 "정보 부족해도 초안 작성 거부 금지" 지시 추가 |

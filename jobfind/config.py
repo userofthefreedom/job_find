@@ -1,8 +1,10 @@
 from __future__ import annotations
-import configparser
+import os
 from types import SimpleNamespace
 
-CONFIG_PATH = "config.ini"
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def _parse_list(value: str) -> list[str]:
@@ -14,33 +16,31 @@ def _parse_optional_int(value: str) -> int | None:
     return int(value) if value else None
 
 
-def load_config(path: str) -> SimpleNamespace:
-    parser = configparser.ConfigParser()
-    parser.read(path, encoding="utf-8")
-    career_type = parser.get("filter", "career_type", fallback="").strip()
-    top_n_raw = parser.get("relevance", "top_n", fallback="20").strip()
+def load_config() -> SimpleNamespace:
+    career_type = os.environ.get("FILTER_CAREER_TYPE", "").strip()
+    top_n_raw = os.environ.get("RELEVANCE_TOP_N", "20").strip()
     return SimpleNamespace(
-        KEYWORDS=_parse_list(parser.get("filter", "keywords", fallback="")),
-        LOCATIONS=_parse_list(parser.get("filter", "locations", fallback="")),
+        KEYWORDS=_parse_list(os.environ.get("FILTER_KEYWORDS", "")),
+        LOCATIONS=_parse_list(os.environ.get("FILTER_LOCATIONS", "")),
         CAREER_TYPE=career_type or None,
-        EXP_MIN=_parse_optional_int(parser.get("filter", "exp_min", fallback="")),
-        EXP_MAX=_parse_optional_int(parser.get("filter", "exp_max", fallback="")),
-        EXCLUDE_KEYWORDS=_parse_list(parser.get("filter", "exclude_keywords", fallback="")),
-        RELEVANCE_ROLES=parser.get("relevance", "roles", fallback="").strip(),
-        RELEVANCE_DOMAINS=parser.get("relevance", "domains", fallback="").strip(),
-        RELEVANCE_MODEL=parser.get(
-            "relevance", "model", fallback="jhgan/ko-sroberta-multitask"
+        EXP_MIN=_parse_optional_int(os.environ.get("FILTER_EXP_MIN", "")),
+        EXP_MAX=_parse_optional_int(os.environ.get("FILTER_EXP_MAX", "")),
+        EXCLUDE_KEYWORDS=_parse_list(os.environ.get("FILTER_EXCLUDE_KEYWORDS", "")),
+        RELEVANCE_ROLES=os.environ.get("RELEVANCE_ROLES", "").strip(),
+        RELEVANCE_DOMAINS=os.environ.get("RELEVANCE_DOMAINS", "").strip(),
+        RELEVANCE_MODEL=os.environ.get(
+            "RELEVANCE_MODEL", "jhgan/ko-sroberta-multitask"
         ).strip(),
         RELEVANCE_TOP_N=int(top_n_raw) if top_n_raw else 20,
-        PROVIDER_PLANNER=parser.get("providers", "planner", fallback="claude_cli").strip(),
-        PROVIDER_PLAN_EVALUATOR=parser.get(
-            "providers", "plan_evaluator", fallback="claude_cli"
+        PROVIDER_PLANNER=os.environ.get("PROVIDER_PLANNER", "claude_cli").strip(),
+        PROVIDER_PLAN_EVALUATOR=os.environ.get(
+            "PROVIDER_PLAN_EVALUATOR", "claude_cli"
         ).strip(),
-        PROVIDER_WRITER=parser.get("providers", "writer", fallback="claude_cli").strip(),
-        PROVIDER_DRAFT_EVALUATOR=parser.get(
-            "providers", "draft_evaluator", fallback="claude_cli"
+        PROVIDER_WRITER=os.environ.get("PROVIDER_WRITER", "claude_cli").strip(),
+        PROVIDER_DRAFT_EVALUATOR=os.environ.get(
+            "PROVIDER_DRAFT_EVALUATOR", "claude_cli"
         ).strip(),
     )
 
 
-config = load_config(CONFIG_PATH)
+config = load_config()

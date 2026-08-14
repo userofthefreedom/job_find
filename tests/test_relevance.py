@@ -3,6 +3,7 @@ import os
 import tempfile
 
 import numpy as np
+import pytest
 
 from jobfind.config import config
 from jobfind.relevance import evaluate_relevance, rank_jobs, score_axis
@@ -38,7 +39,7 @@ def test_score_axis_uses_model(monkeypatch):
     assert scores[1] == 0.0
 
 
-def test_rank_jobs_combines_role_and_domain(monkeypatch):
+def test_rank_jobs_combines_role_and_domain_multiplicatively(monkeypatch):
     import jobfind.relevance as relevance
 
     monkeypatch.setattr(config, "RELEVANCE_ROLES", "기획 PM")
@@ -57,7 +58,41 @@ def test_rank_jobs_combines_role_and_domain(monkeypatch):
         }[query],
     )
     combined = rank_jobs(["게임 기획 PM", "반도체 개발 PM", "게임 마케팅팀"])
-    assert combined == [1.8, 1.0, 1.0]
+    assert combined == [pytest.approx(0.81), pytest.approx(0.09), pytest.approx(0.09)]
+    # 둘 다 가까운 공고가 하나만 가까운 공고보다 확실히 위로 온다
+    assert combined[0] > combined[1]
+    assert combined[0] > combined[2]
+
+def test_rank_jobs_penalizes_lexical_only_match_with_zero_domain(monkeypatch):
+    """실사용 중 발견된 버그의 회귀 테스트: roles="기획"에 문자열만 우연히 겹치는
+    "재무기획"이, 도메인(IT)과는 전혀 무관한데도 role_score 하나만 높다는 이유로
+    실제 IT 도메인 공고보다 상위에 오르던 문제. 곱셈 결합이면 도메인 점수가 0에
+    가까울 때 총점도 0에 가까워져 이 역전이 일어나지 않아야 한다."""
+    import jobfind.relevance as relevance
+
+    monkeypatch.setattr(config, "RELEVANCE_ROLES", "기획")
+    monkeypatch.setattr(config, "RELEVANCE_DOMAINS", "IT")
+    monkeypatch.setattr(
+        relevance,
+        "score_axis",
+        lambda query, texts: {
+            "기획": [0.95, 0.5],   # "재무기획"이 문자열 유사도로 role_score가 더 높음
+            "IT": [0.02, 0.4],     # 하지만 "재무기획"은 IT 도메인과 거의 무관
+        }[query],
+    )
+    combined = rank_jobs(["재무기획 팀원 채용", "IT 서비스 기획 PM"])
+    assert combined[1] > combined[0]  # 실제 IT 기획 공고가 더 높은 순위여야 함
+
+def test_rank_jobs_only_roles_set_uses_addition(monkeypatch):
+    import jobfind.relevance as relevance
+
+    monkeypatch.setattr(config, "RELEVANCE_ROLES", "기획 PM")
+    monkeypatch.setattr(config, "RELEVANCE_DOMAINS", "")
+    monkeypatch.setattr(
+        relevance, "score_axis",
+        lambda query, texts: [0.7] * len(texts) if query == "기획 PM" else [0.0] * len(texts),
+    )
+    assert rank_jobs(["아무 공고", "다른 공고"]) == [0.7, 0.7]
 
 
 def _make_block(job_id: str, title: str, keyword: str = "", selected: bool = False) -> str:

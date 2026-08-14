@@ -40,6 +40,10 @@ def test_writer_prompt_includes_plan_and_profile():
     assert "프로필" in user
     assert "계획 내용" in user
 
+def test_writer_prompt_instructs_never_to_refuse():
+    system, _ = writer_prompt("공고", "프로필", "계획")
+    assert "거부하지 마라" in system
+
 def test_draft_evaluator_prompt_includes_draft():
     system, user = draft_evaluator_prompt("공고", "초안 내용")
     assert "초안 내용" in user
