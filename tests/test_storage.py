@@ -7,6 +7,7 @@ from jobfind.storage import (
     extract_id,
     format_block,
     is_dismissed,
+    is_selected,
     load_active_ids,
     load_dismissed_ids,
     parse_blocks,
@@ -123,6 +124,16 @@ def test_is_dismissed_upper():
 def test_is_dismissed_lower():
     block = _make_block("saramin_1").replace(DIVIDER + "\n[수집일]", DIVIDER + "\n[x]\n[수집일]")
     assert is_dismissed(block)
+
+
+# ── is_selected ───────────────────────────────────────────────────────────────
+
+def test_is_selected_marked():
+    block = _make_block("saramin_1").replace(DIVIDER + "\n[수집일]", DIVIDER + "\n[자소서]\n[수집일]")
+    assert is_selected(block)
+
+def test_is_selected_not_marked():
+    assert not is_selected(_make_block("saramin_1"))
 
 def test_is_dismissed_no_marker():
     assert not is_dismissed(_make_block("saramin_1"))

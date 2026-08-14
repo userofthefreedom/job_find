@@ -1,4 +1,5 @@
 from __future__ import annotations
+import html as html_lib
 import re
 from datetime import datetime
 
@@ -63,6 +64,65 @@ def normalize_saramin(item) -> dict | None:
         }
     except (AttributeError, IndexError, KeyError):
         return None
+
+
+def _parse_og_description(desc: str) -> dict:
+    """상세 페이지 og:description은 "회사, 제목, 경력:X, 학력:X, 지역:X, 마감일:X, ..."
+    형태다. 항목마다 있고 없음이 달라 위치가 아닌 "라벨:값" 패턴으로만 필요한 값을 뽑는다."""
+    parts = [p.strip() for p in desc.split(",")]
+    company = parts[0] if parts else ""
+    title = parts[1] if len(parts) > 1 else ""
+    fields: dict[str, str] = {}
+    for part in parts[2:]:
+        if ":" in part:
+            label, _, value = part.partition(":")
+            fields[label.strip()] = value.strip()
+    return {
+        "company": company,
+        "title": title,
+        "experience": fields.get("경력", ""),
+        "location": fields.get("지역", ""),
+        "deadline": fields.get("마감일", ""),
+    }
+
+
+def fetch_saramin_detail(rec_idx: str) -> dict | None:
+    url = f"https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx={rec_idx}"
+    html_text = None
+    for attempt in range(2):
+        try:
+            resp = requests.get(
+                url,
+                headers={"User-Agent": _UA, "Accept-Language": "ko-KR,ko;q=0.9"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            html_text = resp.text
+            break
+        except requests.RequestException as e:
+            if attempt == 1:
+                print(f"[사람인] 공고 상세 조회 오류: {e}")
+    if html_text is None:
+        return None
+
+    m = re.search(r'<meta property="og:description" content="([^"]*)"', html_text)
+    if not m:
+        return None
+    info = _parse_og_description(html_lib.unescape(m.group(1)))
+    if not info["title"]:
+        return None
+    return {
+        "id": f"saramin_{rec_idx}",
+        "source": "사람인",
+        "company": info["company"],
+        "title": info["title"],
+        "location": info["location"],
+        "job_type": "",
+        "experience": info["experience"],
+        "keyword": "",
+        "url": url,
+        "deadline": info["deadline"],
+    }
 
 
 def fetch_saramin_all() -> list[dict]:

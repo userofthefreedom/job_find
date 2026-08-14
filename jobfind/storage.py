@@ -69,6 +69,10 @@ def is_dismissed(block: str) -> bool:
     return any(ln.strip().upper() == "[X]" for ln in block.splitlines())
 
 
+def is_selected(block: str) -> bool:
+    return any(ln.strip() == "[자소서]" for ln in block.splitlines())
+
+
 def extract_id(block: str) -> str | None:
     for ln in block.splitlines():
         if ln.startswith("[ID]"):

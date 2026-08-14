@@ -3,7 +3,7 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup
 
-from jobfind.collectors.saramin import normalize_saramin, parse_saramin_date
+from jobfind.collectors.saramin import _parse_og_description, normalize_saramin, parse_saramin_date
 from jobfind.collectors.wanted import _wanted_experience, normalize_wanted
 
 # ── parse_saramin_date ────────────────────────────────────────────────────────
@@ -114,3 +114,33 @@ def test_normalize_wanted_null_deadline():
 
 def test_normalize_wanted_missing_key():
     assert normalize_wanted({"id": 1}) is None
+
+
+# ── _parse_og_description ─────────────────────────────────────────────────────
+
+def test_parse_og_description_full_fields():
+    desc = (
+        "(주)투비파트너즈, 연구소(PM), 경력:경력 3~10년, 학력:대학교(4년)이상, "
+        "지역:서울 서초구, 마감일:2026-08-27, 홈페이지:tbps.co.kr"
+    )
+    info = _parse_og_description(desc)
+    assert info["company"] == "(주)투비파트너즈"
+    assert info["title"] == "연구소(PM)"
+    assert info["experience"] == "경력 3~10년"
+    assert info["location"] == "서울 서초구"
+    assert info["deadline"] == "2026-08-27"
+
+def test_parse_og_description_missing_location_field():
+    # 급여 등 라벨 없는 항목이 섞여도 알려진 라벨만 뽑고 나머지는 무시한다.
+    desc = "(주)캠토, 용역부문 기획 담당자 채용, 경력:경력무관, 학력:학력무관, 면접 후 결정, 마감일:2026-08-14"
+    info = _parse_og_description(desc)
+    assert info["company"] == "(주)캠토"
+    assert info["title"] == "용역부문 기획 담당자 채용"
+    assert info["experience"] == "경력무관"
+    assert info["location"] == ""
+    assert info["deadline"] == "2026-08-14"
+
+def test_parse_og_description_empty_string():
+    info = _parse_og_description("")
+    assert info["company"] == ""
+    assert info["title"] == ""

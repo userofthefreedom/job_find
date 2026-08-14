@@ -50,6 +50,24 @@ def normalize_wanted(item: dict) -> dict | None:
         return None
 
 
+def fetch_wanted_detail(job_id: str) -> dict | None:
+    url = f"{WANTED_URL}/{job_id}"
+    for attempt in range(2):
+        try:
+            resp = requests.get(
+                url,
+                headers={"User-Agent": _UA, "Accept": "application/json", "Referer": "https://www.wanted.co.kr/"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            job = resp.json().get("job")
+            return normalize_wanted(job) if job else None
+        except (requests.RequestException, ValueError) as e:
+            if attempt == 1:
+                print(f"[원티드] 공고 상세 조회 오류: {e}")
+    return None
+
+
 def fetch_wanted_all() -> list[dict]:
     jobs: list[dict] = []
     offset = 0
