@@ -5,6 +5,7 @@ import tempfile
 from jobfind.storage import (
     DIVIDER,
     extract_id,
+    find_block,
     format_block,
     is_dismissed,
     is_selected,
@@ -90,6 +91,35 @@ def test_load_dismissed_ids():
         assert load_dismissed_ids(path) == {"saramin_999", "wanted_888"}
     finally:
         os.unlink(path)
+
+
+# ── find_block ────────────────────────────────────────────────────────────────
+
+def test_find_block_returns_matching_block():
+    content = _make_block("saramin_1") + _make_block("wanted_2")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as f:
+        f.write(content)
+        path = f.name
+    try:
+        block = find_block(path, "wanted_2")
+        assert block is not None
+        assert "wanted_2" in block
+        assert "saramin_1" not in block
+    finally:
+        os.unlink(path)
+
+def test_find_block_not_found_returns_none():
+    content = _make_block("saramin_1")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as f:
+        f.write(content)
+        path = f.name
+    try:
+        assert find_block(path, "wanted_999") is None
+    finally:
+        os.unlink(path)
+
+def test_find_block_missing_file_returns_none():
+    assert find_block("nonexistent.txt", "saramin_1") is None
 
 
 # ── parse_blocks ──────────────────────────────────────────────────────────────

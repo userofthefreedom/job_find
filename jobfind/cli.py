@@ -8,10 +8,12 @@ from jobfind.collectors.saramin import fetch_saramin_detail
 from jobfind.collectors.wanted import fetch_wanted_detail
 from jobfind.dedup import fetch_all
 from jobfind.filters import filter_jobs
+from jobfind.pipeline.orchestrator import run_for_job
 from jobfind.relevance import evaluate_relevance
-from jobfind.selection import sync_materials_folders
+from jobfind.selection import MAX_SELECTED, selected_ids, sync_materials_folders
 from jobfind.storage import (
     ensure_output_dir,
+    find_block,
     load_active_ids,
     load_dismissed_ids,
     process_x_markers,
@@ -89,6 +91,30 @@ def select() -> None:
               "— 초과분의 [자소서] 마커를 해제해주세요")
 
 
+def write() -> None:
+    ids = selected_ids(JOBS_PATH)
+    if not ids:
+        print("자소서를 작성할 공고가 없습니다. jobs_all.txt에서 [자소서]로 표시한 뒤 다시 시도하세요.")
+        return
+    if len(ids) > MAX_SELECTED:
+        print(f"[오류] 자소서는 최대 {MAX_SELECTED}개까지만 작성할 수 있습니다 (현재 {len(ids)}건 선택됨). "
+              "초과분의 [자소서] 마커를 해제한 뒤 다시 실행하세요.")
+        return
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"[{now}] 자소서 작성 시작 | 대상: {len(ids)}건")
+    for job_id in ids:
+        block = find_block(JOBS_PATH, job_id)
+        if not block:
+            print(f"- {job_id}: jobs_all.txt에서 찾을 수 없어 건너뜀")
+            continue
+        print(f"- {job_id} 작성 중...")
+        run_for_job(job_id, block)
+        print(f"  완료: output/cover_letters/{job_id}/draft.md")
+    print("자소서 작성 완료 — output/cover_letters/<공고ID>/ 하위에서 "
+          "plan.md · plan_review.md · draft.md · draft_review.md를 확인하세요.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jobfind")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -97,6 +123,7 @@ def main() -> None:
     add_parser = subparsers.add_parser("add", help="사람인/원티드 공고 URL을 수동으로 추가")
     add_parser.add_argument("url", help="공고 상세 페이지 URL")
     subparsers.add_parser("select", help="[자소서]로 표시한 공고에 materials/ 폴더를 준비")
+    subparsers.add_parser("write", help="[자소서]로 선택된 공고의 자소서 초안을 작성")
     args = parser.parse_args()
 
     if args.command == "collect":
@@ -107,6 +134,8 @@ def main() -> None:
         add_job(args.url)
     elif args.command == "select":
         select()
+    elif args.command == "write":
+        write()
 
 
 if __name__ == "__main__":

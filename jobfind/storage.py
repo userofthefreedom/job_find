@@ -51,6 +51,17 @@ def write_jobs(jobs: list[dict], path: str) -> None:
             f.write(format_block(job))
 
 
+def find_block(jobs_path: str, job_id: str) -> str | None:
+    if not os.path.exists(jobs_path):
+        return None
+    with open(jobs_path, encoding="utf-8") as f:
+        blocks = parse_blocks(f.read())
+    for block in blocks:
+        if extract_id(block) == job_id:
+            return block
+    return None
+
+
 def parse_blocks(text: str) -> list[str]:
     lines = text.splitlines(keepends=True)
     blocks: list[str] = []
