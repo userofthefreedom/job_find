@@ -77,6 +77,14 @@ def extract_id(block: str) -> str | None:
     return None
 
 
+def extract_field(block: str, label: str) -> str:
+    for ln in block.splitlines():
+        if ln.startswith(label):
+            parts = ln.split(None, 1)
+            return parts[1].strip() if len(parts) > 1 else ""
+    return ""
+
+
 def append_dismissed_ids(ids: list[str], path: str) -> None:
     with open(path, "a", encoding="utf-8") as f:
         for id_ in ids:

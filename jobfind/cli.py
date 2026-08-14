@@ -5,6 +5,7 @@ from datetime import datetime
 
 from jobfind.dedup import fetch_all
 from jobfind.filters import filter_jobs
+from jobfind.relevance import evaluate_relevance
 from jobfind.storage import (
     ensure_output_dir,
     load_active_ids,
@@ -36,14 +37,23 @@ def collect() -> None:
     print_summary(len(jobs), x_count, len(filtered), len(new_jobs))
 
 
+def evaluate() -> None:
+    removed = evaluate_relevance(JOBS_PATH, DISMISSED_PATH)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"[{now}] 관련성 평가 완료 | 제거: {removed}건")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jobfind")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("collect", help="사람인+원티드 공고 수집 후 필터링해 저장")
+    subparsers.add_parser("evaluate", help="수집된 공고를 role_description과 비교해 관련성 재평가")
     args = parser.parse_args()
 
     if args.command == "collect":
         collect()
+    elif args.command == "evaluate":
+        evaluate()
 
 
 if __name__ == "__main__":
