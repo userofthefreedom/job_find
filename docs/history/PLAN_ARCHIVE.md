@@ -248,7 +248,7 @@ python fetch_jobs.py
 
 ---
 
-## Phase 7 — 공고 관리: 지원 상태 추적 (예정, 설계는 확정됨)
+## Phase 7 — 공고 관리: 지원 상태 추적 ✅ (2026-08-15 완료)
 
 **목표**: 기존 `[X]`(제거) 마커는 유지하고, 지원 상태(지원함/면접/합격/탈락)를 기록할 수 있게 확장
 
@@ -258,23 +258,34 @@ python fetch_jobs.py
 
 - **마커 문법**: 새 줄 `[상태]`를 별도로 추가(기존 `[ ]`/`[X]`/`[자소서]`는 그대로 유지) —
   기존 마커 로직과 겹치지 않아 더 안전하다는 판단.
-- **"탈락" 처리**: `[X]`처럼 `jobs_all.txt`에서 제거하고 별도 기록 파일(예:
-  `archived_ids.txt`)로 옮긴다 — 목록이 깔끔하게 유지된다는 판단.
+- **"탈락" 처리**: `[X]`처럼 `jobs_all.txt`에서 제거하고 별도 기록 파일(`archived_ids.txt`)로
+  옮긴다 — 목록이 깔끔하게 유지된다는 판단.
 
-### 아직 남은 세부 설계
+### 구현 내용
 
-- "지원함/면접/합격"은 `jobs_all.txt`에 계속 남아 있어야 확인 가능 —
-  `process_x_markers()`처럼 매 실행마다 스캔하되 제거는 하지 않고 상태만 읽어 콘솔 요약에
-  반영(예: "지원함 3건, 면접 1건")하는 정도가 적절해 보임
-- 상태 변경 이력(언제 바뀌었는지)까지 추적할지는 범위 밖 — 단순 텍스트 파일 기반 원칙과 충돌
-- `[상태]` 값의 정확한 어휘(지원함/서류합격/면접/최종합격/탈락 등 세분화 여부)는 착수 시 확정
+- `jobfind/storage.py`에 `process_status_markers(jobs_path, archived_path)` 추가 —
+  `process_x_markers()`와 같은 패턴으로 블록을 스캔한다. `[상태]` 값이 정확히 "탈락"이고
+  `[ID]`가 있는 블록만 제거+기록하고, 그 외 값(지원함/면접/합격 등 자유 텍스트)은 개수만
+  `dict`로 집계해 반환하며 블록은 그대로 둔다. `[ID]` 없는 손상된 "탈락" 블록은
+  `process_x_markers()`와 동일하게 보존한다(집계에는 포함).
+- `load_archived_ids()`/`append_archived_ids()` 추가 — `dismissed_ids.txt`와 동일한
+  형식이라 기존 `load_dismissed_ids()`를 그대로 감싸는 얇은 래퍼로 구현.
+- `jobfind/cli.py`의 `collect()`에 `process_x_markers()` 다음 단계로
+  `process_status_markers()` 호출을 추가하고, 집계 결과가 있으면
+  `[지원 현황] 지원함 3건, 면접 1건` 형태로 콘솔에 출력한다(경고가 아니라 정보성 출력이라
+  `run_log.txt`에는 남기지 않음). `skip_ids`에 `load_archived_ids(ARCHIVED_PATH)`도
+  합쳐 탈락 처리된 공고가 재수집되지 않게 했다.
+- `[상태]` 값에 정해진 어휘 목록은 두지 않았다(자유 텍스트) — "탈락"이라는 정확한 문자열만
+  특별 취급하고, 나머지는 사용자가 원하는 어떤 단어든 그대로 집계한다.
 
-### 작업 목록 (착수 시 위 세부 설계 확정 후 구체화)
+### 검증
 
-- [ ] 상태 마커 파싱 함수 추가 (`parse_blocks()` 재사용) — `[상태]` 줄 읽기/쓰기
-- [ ] "탈락" 처리 — `process_x_markers()`와 유사한 흐름으로 제거 + `archived_ids.txt` 기록
-- [ ] `format_block()` 출력에 `[상태]` 마커 반영
-- [ ] `docs/SPEC.md` §4-5(마커 처리 명세)를 상태 마커까지 포괄하도록 확장
+- 210개 테스트 전부 통과(Phase 7 관련 10개 신규 — 탈락 제거+기록, 진행중 상태 집계+보존,
+  `[상태]` 없는 블록 무시, ID 없는 탈락 블록 보존, `collect()` 통합 2건 포함).
+- 실제 프로덕션 `jobs_all.txt`를 대상으로 한 end-to-end 검증은 생략했다 — 사용자의 실제
+  지원 이력 데이터를 임의로 훼손할 위험을 피하기 위해, 단위 테스트로 블록 파싱·제거·집계
+  로직을 충분히(엣지 케이스 포함) 검증하는 것으로 대신했다. 기능 자체가 opt-in(사용자가
+  `[상태]` 줄을 직접 추가하기 전까지는 아무 영향 없음)이라 위험이 낮다고 판단.
 
 ---
 
@@ -673,7 +684,7 @@ CONCERN으로 잡혔다. 결과: PASS 2 · CONCERN 7 · UNKNOWN 2(대부분 사�
 | 4 | `fetch_jobs.py` (X 마커 처리 추가) |
 | 5 | `jobfind/collectors/{saramin,wanted}.py`(request_failed/page_cap_hit 반환), `jobfind/dedup.py`(신호 전달), `jobfind/storage.py`(append_run_log), `jobfind/cli.py`(경고 조립 + run_log 기록) — 2026-08-15 완료 |
 | 6 | `jobfind/config.py`(CAREER_TYPE 리스트화, EXCLUDE_COMPANIES 추가), `jobfind/filters.py`(다중선택 + 블랙리스트), `jobfind/storage.py`(_format_deadline) — 2026-08-15 완료 |
-| 7 (미착수) | `fetch_jobs.py`, `docs/SPEC.md` (상태 마커 추가) — Phase 8~13에 우선순위 밀림 |
+| 7 | `jobfind/storage.py`(process_status_markers, load/append_archived_ids), `jobfind/cli.py`(collect 통합) — 2026-08-15 완료 |
 | 8 | `jobfind/` 패키지 전체(신설), `fetch_jobs.py`/`tests/test_fetch_jobs.py` 삭제 |
 | 9 | `jobfind/relevance.py`, `config.ini` |
 | 10 | `jobfind/{collectors/*,selection.py,storage.py,cli.py}` |
@@ -711,3 +722,4 @@ CONCERN으로 잡혔다. 결과: PASS 2 · CONCERN 7 · UNKNOWN 2(대부분 사�
 | 2026-08-15 | Phase 16 추가 — 공고 최종검수(`verify`) 신설: 목록 요약과 실제 상세 요건(사람인은 `view-detail` 엔드포인트로 확보한 이미지, 원티드는 상세 API 텍스트)을 AI로 대조해 PASS/CONCERN/UNKNOWN 판정을 남김. 실사용 검증 중 사람인이 본문을 이미지로 올린다는 사실과, 인증 없는 정적 엔드포인트로 그 이미지 URL을 얻을 수 있다는 점을 발견(헤드리스 브라우저 불필요). 판정 파싱 강건화(마크다운 볼드 제거, 자기 정정 시 마지막 판정 채택) 포함. 세부 내용은 위 Phase 16 섹션 참고 |
 | 2026-08-15 | Phase 5 완료 — 2026-07-10에 세운 로드맵 초안을 지금 구조(`jobfind/` 패키지)에 맞게 구현: 소스 요청 자체 실패와 정상적인 0건(오늘 신규 공고 없음)을 구분하는 신호를 `fetch_saramin_all`/`fetch_wanted_all`에 추가하고, 사람인 페이지 상한 도달 감지를 붙여 `collect` 실행 시 콘솔+`output/run_log.txt`에 `[경고]`로 남긴다. 구현 중 `fetch_wanted_all`의 "빈 응답"과 "요청 실패" 구분 버그를 테스트로 발견해 수정. 세부 내용은 위 Phase 5 섹션 참고 |
 | 2026-08-15 | Phase 6 완료 — 남은 로드맵 초안 항목 구현: `career_type` 다중 선택, 회사 블랙리스트(`FILTER_EXCLUDE_COMPANIES`), 마감임박 D-day 표시. exp_range containment 전환은 착수 전 사용자 확인 결과 "overlap 유지"로 확정해 구현하지 않음. 같은 세션에서 Phase 7(지원 상태 추적)의 미결 설계 질문(마커 문법·탈락 처리)도 사용자에게 확인해 확정(구현은 아직) — 새 줄 `[상태]` 추가 + 탈락은 `[X]`처럼 제거+별도 기록. 세부 내용은 위 Phase 6/7 섹션 참고 |
+| 2026-08-15 | **Phase 7 완료 — 2026-07-10 로드맵 초안(Phase 5~7) 전항목 완료.** `[상태]` 마커 신설(지원함/면접/합격 등 자유 텍스트 집계), "탈락"은 `[X]`처럼 `jobs_all.txt`에서 제거하고 `archived_ids.txt`에 영구 기록(재수집 방지). `collect` 실행 시 자동 처리되며 콘솔에 `[지원 현황] ...`로 집계 출력. 실 프로덕션 데이터 대신 단위 테스트로 검증(opt-in 기능이라 위험 낮다고 판단). 세부 내용은 위 Phase 7 섹션 참고 |

@@ -124,6 +124,15 @@ def append_dismissed_ids(ids: list[str], path: str) -> None:
             f.write(id_ + "\n")
 
 
+def load_archived_ids(path: str) -> set[str]:
+    """탈락 처리된 공고 ID 목록을 읽는다 (Phase 7). 파일 형식은 dismissed_ids.txt와 동일하다."""
+    return load_dismissed_ids(path)
+
+
+def append_archived_ids(ids: list[str], path: str) -> None:
+    append_dismissed_ids(ids, path)
+
+
 def rewrite_jobs_file(blocks: list[str], path: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for block in blocks:
@@ -150,3 +159,31 @@ def process_x_markers(jobs_path: str, dismissed_path: str) -> int:
         rewrite_jobs_file(keep, jobs_path)
         print(f"[X] 처리: {len(removed_ids)}건 제거됨")
     return len(removed_ids)
+
+
+def process_status_markers(jobs_path: str, archived_path: str) -> dict[str, int]:
+    """[상태] 마커를 스캔한다 (Phase 7). "탈락"은 [X]처럼 파일에서 제거하고
+    archived_ids.txt에 영구 기록한다. 그 외 상태(지원함/면접/합격 등)는 개수만 세어
+    반환하고 파일에는 그대로 남긴다 — 진행 중인 지원 현황은 jobs_all.txt에서 계속
+    확인할 수 있어야 하기 때문이다. [상태] 줄이 없는 블록은 집계에서 제외된다."""
+    if not os.path.exists(jobs_path):
+        return {}
+    with open(jobs_path, encoding="utf-8") as f:
+        blocks = parse_blocks(f.read())
+    keep: list[str] = []
+    archived_ids: list[str] = []
+    counts: dict[str, int] = {}
+    for block in blocks:
+        status = extract_field(block, "[상태]")
+        if status == "탈락":
+            id_ = extract_id(block)
+            if id_:
+                archived_ids.append(id_)
+                continue
+        if status:
+            counts[status] = counts.get(status, 0) + 1
+        keep.append(block)
+    if archived_ids:
+        append_archived_ids(archived_ids, archived_path)
+        rewrite_jobs_file(keep, jobs_path)
+    return counts

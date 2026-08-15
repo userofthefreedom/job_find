@@ -1,6 +1,6 @@
 # SPEC — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 6: career_type 다중선택·회사 블랙리스트·D-day §3/§5-1 추가) | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 7: 지원 상태 마커 §4-7 추가) | 기반 문서: PRD.md_
 
 ---
 
@@ -440,6 +440,55 @@ sync_materials_folders(jobs_path):
 
 ---
 
+## 4-7. 지원 상태 마커 명세 (Phase 7)
+
+### 마커 형식
+
+`[ ]`/`[X]`/`[자소서]`와는 별개로, 블록 안에 **새 줄 `[상태]`를 추가**하면 지원 진행
+상황을 기록할 수 있다(예: `지원함`/`면접`/`합격`/`탈락` — 정해진 값 목록은 없고 자유
+텍스트다). 기존 마커 로직과 겹치지 않도록 설계했다.
+
+```
+════════════════════════════════════════════════
+[ ]
+[수집일] 2026-08-14
+[출처]   원티드
+[회사]   주밍코리아
+[제목]   소프트웨어 R&D 기술기획 IP 담당
+...
+[상태] 지원함
+[ID]     wanted_380759
+════════════════════════════════════════════════
+```
+
+### 처리 흐름 (`process_status_markers()`, `jobfind.py collect` 안에서 자동 실행)
+
+```
+process_status_markers(jobs_path, archived_path):
+  1. jobs_all.txt 를 블록 단위로 파싱
+  2. 각 블록의 [상태] 값을 확인
+  3. 값이 "탈락"이고 [ID]가 있으면 → 블록을 파일에서 제거하고 ID를 archived_ids.txt 에 append
+     ([X] 처리와 동일한 패턴 — [ID] 없는 손상된 블록은 보존)
+  4. 그 외 값(지원함/면접/합격 등)은 개수만 집계하고 블록은 그대로 둠
+  5. [상태] 줄이 없는 블록은 집계에서 제외
+  6. 집계 결과를 dict로 반환 (예: {"지원함": 3, "면접": 1})
+```
+
+- **"탈락"만 제거된다.** "지원함"/"면접"/"합격" 등 진행 중인 상태는 `jobs_all.txt`에 계속
+  남아 있어야 확인할 수 있으므로 절대 제거하지 않는다 — `evaluate`의 관련성 랭킹에서도
+  밀려날 수 있는 일반 공고와 달리, `evaluate_relevance()`는 `[자소서]` 블록만 보호 대상으로
+  본다. 진행 중인 지원 건을 순위 밖으로 밀리지 않게 하려면 `[자소서]`도 함께 유지하거나
+  사용자가 직접 확인해야 한다(현재 범위에서는 `[상태]` 자체가 `evaluate` 보호 대상은 아님).
+- `jobfind.py collect` 실행 시 `[X]` 처리 직후, 공고 수집 전에 자동으로 실행된다. 콘솔에
+  `[지원 현황] 지원함 3건, 면접 1건`처럼 집계를 출력한다(경고가 아니라 정보성 출력이라
+  `run_log.txt`에는 남기지 않는다).
+- `output/archived_ids.txt`는 `dismissed_ids.txt`와 동일한 형식(줄마다 ID 하나)이며,
+  `collect`가 다음에 같은 공고를 다시 수집하지 않도록 `skip_ids`에도 포함된다.
+- 상태 변경 이력(언제 바뀌었는지)은 추적하지 않는다 — 단순 텍스트 파일 기반 원칙과
+  충돌하기 때문에 범위 밖으로 뒀다.
+
+---
+
 ## 5. 출력 파일 명세
 
 ### 5-1. 결과 파일
@@ -477,6 +526,8 @@ sync_materials_folders(jobs_path):
   `YYYY-MM-DD` 형식이 아니면(예: 알 수 없는 형식) 원본 문자열을 그대로 둔다
 - `[검수]` 줄: `jobfind.py verify` 실행 후에만 `[ID]` 줄 바로 앞에 추가됨 (§10 참고).
   `"[검수] <PASS|CONCERN|UNKNOWN>: <근거>"` 형식의 항상 한 줄짜리 필드
+- `[상태]` 줄: 사용자가 직접 추가하는 선택적 필드(Phase 7, §4-7 참고) — 지원 진행 상황
+  자유 텍스트
 - 구분선: `═` 48개
 
 ### X 마커 사용 예시 (사용자가 직접 편집)
@@ -507,6 +558,16 @@ sync_materials_folders(jobs_path):
 saramin_73261234
 wanted_12345
 ```
+
+### 5-2a. archived_ids 파일 (Phase 7)
+
+경로: `output/archived_ids.txt`  
+인코딩: UTF-8  
+형식: `dismissed_ids.txt`와 동일(줄마다 ID 하나)
+
+`[상태] 탈락`으로 표시해 제거된 공고 ID가 여기 영구 기록된다(§4-7). `dismissed_ids.txt`와
+마찬가지로 `collect`의 `skip_ids`에 포함돼 이후 재수집되지 않는다 — 단, 의미상으로는
+"관심 없음"(`[X]`)이 아니라 "이미 지원했다 탈락함"이라 별도 파일로 분리했다.
 
 ### 5-3. run_log 파일 (Phase 5)
 
@@ -557,7 +618,9 @@ v3부터는 단일 `main()`이 아니라 서브커맨드별로 흐름이 나뉜�
 jobfind.py collect
  ├─ ensure_output_dir()            → output/ 없으면 생성
  ├─ process_x_markers()            → [X] 블록 제거 + dismissed_ids.txt 기록 (§4-5)
- ├─ skip_ids = active | dismissed
+ ├─ process_status_markers()       → [상태]=탈락 블록 제거 + archived_ids.txt 기록,
+ │                                     나머지 상태는 집계해 콘솔에 출력 (§4-7)
+ ├─ skip_ids = active | dismissed | archived
  ├─ jobs, saramin_failed, wanted_failed, page_cap_hit = fetch_all()
  │                                   → fetch_saramin_all() + fetch_wanted_all() + dedup (§5-3)
  ├─ filtered = filter_jobs(jobs)   → .env FILTER_* 조건 적용 (§3)

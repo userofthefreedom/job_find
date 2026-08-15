@@ -16,7 +16,9 @@ from jobfind.storage import (
     ensure_output_dir,
     find_block,
     load_active_ids,
+    load_archived_ids,
     load_dismissed_ids,
+    process_status_markers,
     process_x_markers,
     write_jobs,
 )
@@ -27,6 +29,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 JOBS_PATH = "output/jobs_all.txt"
 DISMISSED_PATH = "output/dismissed_ids.txt"
+ARCHIVED_PATH = "output/archived_ids.txt"
 RUN_LOG_PATH = "output/run_log.txt"
 
 
@@ -43,7 +46,15 @@ def print_summary(total: int, x_removed: int, filtered: int, new: int, warnings:
 def collect() -> None:
     ensure_output_dir()
     x_count = process_x_markers(JOBS_PATH, DISMISSED_PATH)
-    skip_ids = load_active_ids(JOBS_PATH) | load_dismissed_ids(DISMISSED_PATH)
+    status_counts = process_status_markers(JOBS_PATH, ARCHIVED_PATH)
+    if status_counts:
+        summary = ", ".join(f"{status} {count}건" for status, count in status_counts.items())
+        print(f"[지원 현황] {summary}")
+    skip_ids = (
+        load_active_ids(JOBS_PATH)
+        | load_dismissed_ids(DISMISSED_PATH)
+        | load_archived_ids(ARCHIVED_PATH)
+    )
     jobs, saramin_failed, wanted_failed, page_cap_hit = fetch_all()
     filtered = filter_jobs(jobs)
     new_jobs = [j for j in filtered if j["id"] not in skip_ids]

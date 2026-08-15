@@ -12,8 +12,10 @@ from jobfind.storage import (
     is_dismissed,
     is_selected,
     load_active_ids,
+    load_archived_ids,
     load_dismissed_ids,
     parse_blocks,
+    process_status_markers,
     process_x_markers,
 )
 
@@ -244,3 +246,91 @@ def test_process_x_markers_block_without_id_preserved():
             f.write(no_id_block)
         count = process_x_markers(jobs_path, dismissed_path)
         assert count == 0  # [ID] 없으므로 제거하지 않음
+
+
+# ── process_status_markers (Phase 7: 지원 상태 추적) ─────────────────────────
+
+def _make_status_block(job_id: str, status: str | None = None) -> str:
+    lines = [DIVIDER, "[ ]", "[수집일] 2026-08-15"]
+    if status is not None:
+        lines.append(f"[상태] {status}")
+    lines += ["[제목]   테스트 공고", f"[ID]     {job_id}", DIVIDER]
+    return "\n".join(lines) + "\n"
+
+
+def test_process_status_markers_archives_rejected_and_removes_from_file():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        archived_path = os.path.join(tmpdir, "archived_ids.txt")
+        content = _make_status_block("saramin_1", "지원함") + _make_status_block("wanted_2", "탈락")
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        counts = process_status_markers(jobs_path, archived_path)
+
+        assert counts == {"지원함": 1}
+        remaining = open(jobs_path, encoding="utf-8").read()
+        assert "saramin_1" in remaining
+        assert "wanted_2" not in remaining
+        assert "wanted_2" in open(archived_path, encoding="utf-8").read()
+
+def test_process_status_markers_counts_without_removing_active_statuses():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        archived_path = os.path.join(tmpdir, "archived_ids.txt")
+        content = (
+            _make_status_block("saramin_1", "지원함")
+            + _make_status_block("wanted_2", "면접")
+            + _make_status_block("saramin_3", "지원함")
+        )
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        counts = process_status_markers(jobs_path, archived_path)
+
+        assert counts == {"지원함": 2, "면접": 1}
+        remaining = open(jobs_path, encoding="utf-8").read()
+        assert all(id_ in remaining for id_ in ["saramin_1", "wanted_2", "saramin_3"])
+        assert not os.path.exists(archived_path)
+
+def test_process_status_markers_ignores_blocks_without_status():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        archived_path = os.path.join(tmpdir, "archived_ids.txt")
+        content = _make_status_block("saramin_1", status=None)
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        counts = process_status_markers(jobs_path, archived_path)
+
+        assert counts == {}
+        assert "saramin_1" in open(jobs_path, encoding="utf-8").read()
+
+def test_process_status_markers_no_file_returns_empty():
+    assert process_status_markers("nonexistent.txt", "nonexistent2.txt") == {}
+
+def test_process_status_markers_rejected_without_id_preserved():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        archived_path = os.path.join(tmpdir, "archived_ids.txt")
+        no_id_block = DIVIDER + "\n[상태] 탈락\n[제목] 손상된 블록\n" + DIVIDER + "\n"
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(no_id_block)
+
+        counts = process_status_markers(jobs_path, archived_path)
+
+        assert counts == {"탈락": 1}  # ID가 없어 제거하지 못하고 집계만 됨
+        assert "손상된 블록" in open(jobs_path, encoding="utf-8").read()
+        assert not os.path.exists(archived_path)
+
+
+# ── load_archived_ids ─────────────────────────────────────────────────────────
+
+def test_load_archived_ids():
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as f:
+        f.write("saramin_777\n")
+        path = f.name
+    try:
+        assert load_archived_ids(path) == {"saramin_777"}
+    finally:
+        os.unlink(path)
