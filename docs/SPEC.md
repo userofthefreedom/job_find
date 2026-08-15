@@ -972,6 +972,11 @@ if plan_review 가 "NEEDS_REVISION"으로 시작:
 draft = writer.run(writer_prompt(job_text, profile, plan))
 draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
 
+if draft_review 가 "NEEDS_REVISION"으로 시작:
+    draft = writer.run(writer_revision_prompt(job_text, profile, plan, draft, draft_review))
+    draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
+    # 재작성은 여기서 최대 1회만 — 재평가 결과가 다시 NEEDS_REVISION이어도 더 반복하지 않음
+
 저장: output/cover_letters/<job_id>/{plan,plan_review,draft,draft_review}.md
 ```
 
@@ -980,9 +985,19 @@ draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
   산출물과 공고 정보만으로 판단하게 해 "필요한 것만 최소 주입"한다.
 - 웹 검색 도구(`extra_tools`)는 `planner`(및 계획 재작성)에만 준다 — 평가/작성 단계는
   이미 계획에 흡수된 정보로 충분하다는 §13-4 이미지 전달 원칙과 동일한 논리다.
-- 초안 평가 이후 자동 재작성 루프는 없다. 평가 의견은 `draft_review.md`로 그대로 남기고,
-  재작성이 필요하면 사용자가 다시 `write`를 실행하도록 한다 (설계 원칙, `docs/PLAN.md`
-  Phase 12 참고).
+- **초안 재작성 루프(Phase 17)**: `draft_evaluator_prompt`는 `plan_evaluator_prompt`와
+  동일하게 첫 줄에 `OK`/`NEEDS_REVISION` 판정을 요구한다. `NEEDS_REVISION`이면 계획
+  재작성과 같은 패턴으로 `writer_revision_prompt(job_text, profile, plan, previous_draft,
+  feedback)`를 호출해 초안을 다시 쓰고 재평가한다. **최대 1회**로 제한한다(계획 재작성과
+  동일한 상한) — 무한 루프·비용 폭주 방지 목적. 이전에는(~Phase 16까지) 이 루프가 없어
+  `draft_review.md`의 피드백이 최종 산출물에 전혀 반영되지 않는 문제가 실사용 중 확인됐다
+  (예: "단점을 여러 섹션에서 반복 고백" 문제를 평가자가 정확히 지적해도 초안이 그대로
+  남음).
+- **공통 스타일 원칙(Phase 17)**: `prompts.COVER_LETTER_STYLE_PRINCIPLES` 상수를 계획/계획
+  재작성/계획평가/작성/작성재작성/초안평가 6개 시스템 프롬프트 전부에 공유 삽입한다.
+  "약점·자격 미달은 전체 문서에서 최대 1회만 언급"·"미확인 회사 정보는 직접인용 금지"
+  두 원칙을 명시해, 계획 평가자와 초안 평가자가 서로 다른 라운드에서 모순된 지침(예:
+  "약점을 정면으로 언급하라" vs "반복하지 마라")을 내리던 문제를 없앴다.
 - **작성 거부 금지**: `writer_prompt`의 시스템 프롬프트는 "공고 정보가 부족해도 초안 작성
   자체를 거부하지 마라"고 명시한다 — 항상 실제 초안 본문을 작성하고, 가정한 부분·추가 확인이
   필요한 사항은 본문과 분리된 안내 문구로만 짧게 남기도록 지시한다 (배경: `docs/history/
@@ -1006,12 +1021,24 @@ draft_review = draft_evaluator.run(draft_evaluator_prompt(job_text, draft))
 | 원티드 | 상세 API의 `detail.intro/main_tasks/requirements/preferred_points/benefits` 필드를 그대로 가져와 라벨을 붙여 합침 (`fetch_wanted_description()`) | 실제 담당업무·자격요건이 반영됨 (검증 완료) |
 | 사람인 | (검토됨, 미채택) 정적 페이지 요청 + `BeautifulSoup.get_text()` | 본문이 자바스크립트로 렌더링돼 헤더/내비게이션 텍스트만 잡힘 — 노이즈만 추가하므로 **빈 문자열 반환으로 되돌림** (알려진 한계, PRD OQ5) |
 
-### 13-4. materials/ 이미지
+### 13-4. materials/ 이미지 및 `notes.md`
 
 `output/cover_letters/<job_id>/materials/`의 이미지 파일(`.png/.jpg/.jpeg/.webp/.gif`)은
 `planner`(및 계획 재작성) 호출에만 전달한다 — 계획 산출물이 이미지에서 뽑아낸 정보를 텍스트로
-흡수하므로 이후 단계(평가/작성)는 원본 이미지가 다시 필요하지 않다. 같은 폴더의 `notes.md`가
-있으면 텍스트로 프롬프트에 포함한다.
+흡수하므로 이후 단계(평가/작성)는 원본 이미지가 다시 필요하지 않다.
+
+같은 폴더의 `notes.md`가 있으면 `_read_notes()`가 읽어 `planner_prompt`/
+`planner_revision_prompt`의 user 프롬프트에 포함한다(Phase 18부터
+`[사용자 제공 정보 — 실제 자소서 문항이 포함되어 있을 수 있음, 있다면 최우선으로 따를 것]`
+라벨 사용). 이 채널은 실제 자소서 문항을 반영하는 유일한 경로다 — 사람인/원티드 어느
+소스도 지원서 제출 폼의 실제 문항(글자수 제한 포함)을 API/스크래핑으로 얻을 수 없기
+때문이다(OQ7). system 프롬프트에도 "`notes.md`에 실제 문항이 있으면 그 문항 순서·표현을
+그대로 따르고, 없을 때만 표준 4문항 구성으로 가정하라"는 지시를 명시해, planner가 계획
+단계에서 실제 문항을 우선 반영하도록 하고, `writer_prompt`도 "계획에 이미 실제 문항 기반
+구성이 있으면 그대로 따르고, 계획에도 없을 때만 표준 구성으로 가정"하도록 조건화했다 —
+이전에는 무조건 표준 4문항을 가정해, `notes.md`에 실제 문항을 적어둬도 반영되지 않는
+문제가 있었다. `jobfind.py select` 실행 시 각 공고의 `materials/notes.md` 경로와 함께
+이 안내를 콘솔에 출력한다.
 
 ### 13-5. 기업 개황 보강 (`jobfind/dart.py`)
 

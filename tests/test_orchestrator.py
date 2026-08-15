@@ -72,6 +72,53 @@ def test_run_for_job_revises_plan_when_needed(monkeypatch, tmp_path):
     job_dir = cover_dir / "saramin_1"
     assert (job_dir / "plan.md").read_text(encoding="utf-8") == "계획 v2 (개선됨)"
 
+def test_run_for_job_revises_draft_when_needed(monkeypatch, tmp_path):
+    fake, cover_dir = _setup(
+        monkeypatch, tmp_path,
+        responses=[
+            "계획",
+            "OK\n좋습니다",
+            "초안 v1",
+            "NEEDS_REVISION\n단점을 반복하지 마라",
+            "초안 v2 (개선됨)",
+            "OK\n좋음",
+        ],
+    )
+
+    result = orch.run_for_job("saramin_1", "공고 텍스트")
+
+    assert result["draft"] == "초안 v2 (개선됨)"
+    assert result["draft_review"] == "OK\n좋음"
+    assert len(fake.calls) == 6  # 계획+계획평가+초안+초안평가 + 초안 재작성+재평가
+    revision_call = fake.calls[4]
+    assert "초안 v1" in revision_call["user"]
+    assert "단점을 반복하지 마라" in revision_call["user"]
+
+    job_dir = cover_dir / "saramin_1"
+    assert (job_dir / "draft.md").read_text(encoding="utf-8") == "초안 v2 (개선됨)"
+    assert (job_dir / "draft_review.md").read_text(encoding="utf-8") == "OK\n좋음"
+
+
+def test_run_for_job_does_not_loop_past_one_draft_revision(monkeypatch, tmp_path):
+    fake, _ = _setup(
+        monkeypatch, tmp_path,
+        responses=[
+            "계획",
+            "OK",
+            "초안 v1",
+            "NEEDS_REVISION\n피드백1",
+            "초안 v2",
+            "NEEDS_REVISION\n피드백2",
+        ],
+    )
+
+    result = orch.run_for_job("saramin_1", "공고 텍스트")
+
+    assert result["draft"] == "초안 v2"
+    assert result["draft_review"] == "NEEDS_REVISION\n피드백2"
+    assert len(fake.calls) == 6  # 재작성은 최대 1회까지만
+
+
 def test_run_for_job_passes_material_images_only_to_planner(monkeypatch, tmp_path):
     fake, cover_dir = _setup(
         monkeypatch, tmp_path,

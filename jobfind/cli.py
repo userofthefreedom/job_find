@@ -127,6 +127,9 @@ def select() -> None:
     if over_limit:
         print(f"[경고] 자소서는 최대 4개까지만 작성할 수 있습니다 (현재 {count}건 선택됨) "
               "— 초과분의 [자소서] 마커를 해제해주세요")
+    for job_id in selected_ids(JOBS_PATH):
+        print(f"  - output/cover_letters/{job_id}/materials/notes.md — 실제 자소서 문항이 있다면 "
+              "여기에 붙여넣어 두세요 (문항 제목·글자수 제한까지 포함하면 write 단계에서 그대로 반영됩니다)")
 
 
 def write() -> None:

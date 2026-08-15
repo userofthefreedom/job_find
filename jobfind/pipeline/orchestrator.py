@@ -63,8 +63,9 @@ def _verdict(evaluation: str) -> str:
 
 
 def run_for_job(job_id: str, job_text: str) -> dict:
-    """공고 하나에 대해 계획 → 계획평가 → (필요 시 계획 재작성) → 작성 → 초안평가를
-    실행하고, 각 단계 결과를 output/cover_letters/<id>/에 저장한다."""
+    """공고 하나에 대해 계획 → 계획평가 → (필요 시 계획 재작성) → 작성 → 초안평가 →
+    (필요 시 초안 재작성 → 재평가, 최대 1회)를 실행하고, 각 단계 결과를
+    output/cover_letters/<id>/에 저장한다."""
     profile = load_profile()
     materials_dir = Path(COVER_LETTERS_DIR) / job_id / "materials"
     images = _materials_images(materials_dir)
@@ -104,6 +105,15 @@ def run_for_job(job_id: str, job_text: str) -> dict:
     system, user = prompts.draft_evaluator_prompt(job_text, draft)
     draft_review = draft_evaluator.run(system, user)
     _save(job_id, "draft_review.md", draft_review)
+
+    if _verdict(draft_review) == "NEEDS_REVISION":
+        system, user = prompts.writer_revision_prompt(job_text, profile, plan, draft, draft_review)
+        draft = writer.run(system, user)
+        _save(job_id, "draft.md", draft)
+
+        system, user = prompts.draft_evaluator_prompt(job_text, draft)
+        draft_review = draft_evaluator.run(system, user)
+        _save(job_id, "draft_review.md", draft_review)
 
     return {
         "id": job_id,
