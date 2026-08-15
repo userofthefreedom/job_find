@@ -54,7 +54,7 @@ def evaluate_relevance(jobs_path: str) -> int:
 
     [자소서]로 이미 선택된 공고는 랭킹 대상에서 제외하고 항상 보존한다 — 순위 밖으로 밀려
     파일에서 사라지면 select로 준비해둔 materials/ 폴더나 진행 중이던 자소서 작업과의 연결이
-    끊겨버리기 때문이다 (실사용 재평가에서 발견된 문제, docs/PLAN.md 참고).
+    끊겨버리기 때문이다 (실사용 재평가에서 발견된 문제, docs/history/PLAN_ARCHIVE.md Phase 14 참고).
     """
     if not (config.RELEVANCE_ROLES or config.RELEVANCE_DOMAINS) or not os.path.exists(jobs_path):
         return 0

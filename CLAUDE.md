@@ -79,13 +79,22 @@
 │   ├── dismissed_ids.txt
 │   └── cover_letters/<공고ID>/  # plan.md, plan_review.md, draft.md, draft_review.md, materials/
 ├── tests/
-└── docs/                         # 기획·설계 문서 + 세션 진행 기록
-    ├── PRD.md
-    ├── SPEC.md
-    ├── PLAN.md
-    ├── PROGRESS.md
-    └── TEST_RESULT.md
+└── docs/                         # 기획·설계 문서 (루트는 항상 최신 상태 요약본)
+    ├── PRD.md                     # 요구사항 (현재 목표/비목표/미결사항)
+    ├── SPEC.md                    # 기술 스펙 (현재 동작 방식)
+    ├── PLAN.md                    # 구현 전략 요약 + 미착수 Phase(5~7)
+    ├── PROGRESS.md                # Phase별 완료 현황 요약
+    ├── TEST_RESULT.md             # 최신 테스트 규모 요약
+    └── history/                   # 과거 세션 기록 전문(全文) 아카이브 — 최신 상태 파악엔 불필요
+        ├── PLAN_ARCHIVE.md         # Phase 1~15 상세 구현 로그
+        ├── SPEC_ARCHIVE.md         # SPEC 변경 이력 + 실측 비교 전문
+        ├── PROGRESS.md             # 세션별 상세 진행 기록
+        └── TEST_RESULT.md          # Phase 1 최초 실행 로그
 ```
+
+문서를 갱신할 때는 **루트 파일에는 "지금 어떤 상태인가"만 남기고, 시행착오·비교표·세션별
+서술 같은 과거 기록은 `docs/history/`로 옮긴다** — 루트 문서가 길어질수록 에이전트가 오래된
+맥락과 현재 상태를 혼동해 환각을 일으키기 쉬워지기 때문이다 (2026-08-15 문서 재구성 배경).
 
 프로젝트 루트에는 실행에 직접 필요한 파일(진입점, 설정 파일, 의존성 목록, 표준 문서)만 둔다.
 세션 진행 기록·테스트 결과처럼 실행에 필요 없는 문서는 `docs/`에 둔다.
