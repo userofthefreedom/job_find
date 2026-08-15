@@ -3,7 +3,12 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup
 
-from jobfind.collectors.saramin import _parse_og_description, normalize_saramin, parse_saramin_date
+from jobfind.collectors.saramin import (
+    _parse_og_description,
+    fetch_saramin_images,
+    normalize_saramin,
+    parse_saramin_date,
+)
 from jobfind.collectors.wanted import _wanted_experience, fetch_wanted_description, normalize_wanted
 
 # ── parse_saramin_date ────────────────────────────────────────────────────────
@@ -165,3 +170,59 @@ def test_parse_og_description_empty_string():
     info = _parse_og_description("")
     assert info["company"] == ""
     assert info["title"] == ""
+
+
+# ── fetch_saramin_images ────────────────────────────────────────────────────
+
+class _FakeResponse:
+    def __init__(self, text):
+        self.text = text
+
+    def raise_for_status(self):
+        pass
+
+
+def test_fetch_saramin_images_filters_icons_and_watermarks(monkeypatch):
+    import jobfind.collectors.saramin as mod
+
+    html = (
+        '<img src="https://www.saraminimage.co.kr/recruit/os_hk_26/06_onus_img.png">'
+        '<img src="//www.saraminimage.co.kr/recruit/bbs_recruit25/41_btem_blue_icon10.png">'
+        '<img src="https://www.saraminimage.co.kr/recruit/bbs_recruit/watermark_white.png">'
+    )
+    monkeypatch.setattr(mod.requests, "get", lambda *a, **kw: _FakeResponse(html))
+
+    images = fetch_saramin_images("54740848")
+
+    assert images == ["https://www.saraminimage.co.kr/recruit/os_hk_26/06_onus_img.png"]
+
+
+def test_fetch_saramin_images_fixes_protocol_relative_url(monkeypatch):
+    import jobfind.collectors.saramin as mod
+
+    html = '<img src="//www.saraminimage.co.kr/recruit/os_hk_26/main.png">'
+    monkeypatch.setattr(mod.requests, "get", lambda *a, **kw: _FakeResponse(html))
+
+    images = fetch_saramin_images("1")
+
+    assert images == ["https://www.saraminimage.co.kr/recruit/os_hk_26/main.png"]
+
+
+def test_fetch_saramin_images_no_content_images_returns_empty(monkeypatch):
+    import jobfind.collectors.saramin as mod
+
+    monkeypatch.setattr(mod.requests, "get", lambda *a, **kw: _FakeResponse("<div>no images</div>"))
+
+    assert fetch_saramin_images("1") == []
+
+
+def test_fetch_saramin_images_request_failure_returns_empty(monkeypatch):
+    import jobfind.collectors.saramin as mod
+    import requests
+
+    def _raise(*a, **kw):
+        raise requests.RequestException("boom")
+
+    monkeypatch.setattr(mod.requests, "get", _raise)
+
+    assert fetch_saramin_images("1") == []

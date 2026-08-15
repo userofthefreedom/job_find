@@ -19,6 +19,7 @@ from jobfind.storage import (
     process_x_markers,
     write_jobs,
 )
+from jobfind.verification import verify_jobs
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -82,6 +83,15 @@ def add_job(url: str) -> None:
     print(f"공고 추가됨: [{job['source']}] {job['title']} ({job['id']})")
 
 
+def verify() -> None:
+    counts = verify_jobs(JOBS_PATH)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"[{now}] 검수 완료 | 확인: {counts['checked']}건 "
+          f"(PASS {counts['pass']} · CONCERN {counts['concern']} · UNKNOWN {counts['unknown']})")
+    if counts["checked"] == 0:
+        print("검수할 신규 공고가 없습니다 (이미 [검수]된 공고는 건너뜁니다).")
+
+
 def select() -> None:
     count, over_limit = sync_materials_folders(JOBS_PATH)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -135,6 +145,7 @@ def main() -> None:
     subparsers.add_parser("evaluate", help="수집된 공고를 직무·도메인 관련성 순으로 정렬해 상위 top_n건만 유지")
     add_parser = subparsers.add_parser("add", help="사람인/원티드 공고 URL을 수동으로 추가")
     add_parser.add_argument("url", help="공고 상세 페이지 URL")
+    subparsers.add_parser("verify", help="목록 요약과 실제 상세 요건을 대조해 [검수] 결과를 남김 (AI 호출)")
     subparsers.add_parser("select", help="[자소서]로 표시한 공고에 materials/ 폴더를 준비")
     subparsers.add_parser("write", help="[자소서]로 선택된 공고의 자소서 초안을 작성")
     args = parser.parse_args()
@@ -145,6 +156,8 @@ def main() -> None:
         evaluate()
     elif args.command == "add":
         add_job(args.url)
+    elif args.command == "verify":
+        verify()
     elif args.command == "select":
         select()
     elif args.command == "write":

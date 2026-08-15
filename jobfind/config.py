@@ -40,6 +40,7 @@ def load_config() -> SimpleNamespace:
         PROVIDER_DRAFT_EVALUATOR=os.environ.get(
             "PROVIDER_DRAFT_EVALUATOR", "claude_cli"
         ).strip(),
+        PROVIDER_VERIFIER=os.environ.get("PROVIDER_VERIFIER", "claude_cli").strip(),
     )
 
 

@@ -1,6 +1,6 @@
 # SPEC — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (변경 이력·실측 비교 서술을 `docs/history/`로 이관) | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 16: 공고 최종검수 `verify` 명세 §10 추가) | 기반 문서: PRD.md_
 
 ---
 
@@ -15,6 +15,7 @@ jobfind/collectors/wanted.py  ← 원티드 목록/상세 API 호출
 jobfind/dedup.py              ← 플랫폼 간 중복 제거
 jobfind/filters.py            ← 1차 필터 (키워드/지역/경력유형/연차)
 jobfind/relevance.py          ← 2차 필터 — HF 임베딩 기반 직무x도메인 랭킹
+jobfind/verification.py       ← 상세 요건 최종검수 — AI로 목록 요약 vs 실제 요건 대조
 jobfind/selection.py          ← [자소서] 마커 스캔, materials/ 폴더 준비
 jobfind/storage.py            ← jobs_all.txt/dismissed_ids.txt 입출력, 블록 파싱, 마커 처리
 jobfind/providers/            ← AI provider 추상화 (claude_cli/codex_cli/api)
@@ -457,6 +458,8 @@ sync_materials_folders(jobs_path):
 - `[조건]` 줄: `location | job_type | experience` 순, 항목이 빈 문자열이면 해당 항목 생략
 - `[직무]` 줄: `keyword` 필드가 비어 있으면 줄 전체 생략
 - `[마감]` 줄: deadline 변환 실패 시 줄 전체 생략
+- `[검수]` 줄: `jobfind.py verify` 실행 후에만 `[ID]` 줄 바로 앞에 추가됨 (§10 참고).
+  `"[검수] <PASS|CONCERN|UNKNOWN>: <근거>"` 형식의 항상 한 줄짜리 필드
 - 구분선: `═` 48개
 
 ### X 마커 사용 예시 (사용자가 직접 편집)
@@ -523,6 +526,10 @@ jobfind.py collect
 jobfind.py evaluate
  └─ evaluate_relevance()           → HF 임베딩으로 직무x도메인 랭킹, 상위 top_n건만 유지 (§11)
 
+jobfind.py verify
+ └─ verify_jobs()                  → [검수] 없는 활성 블록마다 상세 요건 vs 프로필 AI 대조,
+                                       [검수] 결과 삽입 (§10)
+
 jobfind.py add <url>
  ├─ URL에서 소스/ID 판별 (사람인 rec_idx / 원티드 wd/<id>)
  ├─ 단건 상세 조회·정규화
@@ -581,6 +588,7 @@ PROVIDER_PLANNER=claude_cli
 PROVIDER_PLAN_EVALUATOR=claude_cli
 PROVIDER_WRITER=claude_cli
 PROVIDER_DRAFT_EVALUATOR=claude_cli
+PROVIDER_VERIFIER=claude_cli
 
 # api:anthropic / api:openai 백엔드를 쓸 때만 필요:
 ANTHROPIC_API_KEY=
@@ -596,6 +604,94 @@ SARAMIN_ACCESS_KEY=
 API 키(`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`SARAMIN_ACCESS_KEY`) 값은 사용자가 직접
 채운다 — Claude가 대신 입력하지 않는다 (`CLAUDE.md` Security Rules 참고). 나머지 설정
 값은 사용자가 명시적으로 요청한 설정/마이그레이션 작업의 일부로 수정할 수 있다.
+
+---
+
+## 10. 공고 최종검수 명세 (`jobfind/verification.py`)
+
+### 10-1. 목적
+
+`evaluate`까지는 목록 페이지 요약(제목·조건 태그)만 보고 필터링·랭킹한다. 실제 상세
+자격요건이 요약과 다른 경우(예: 목록엔 "경력"이라고만 나오지만 상세엔 "유관 경력 5년
+이상"이 명시된 경우, 또는 직무 태그는 맞지만 실제 요구 도메인 경험이 프로필과 안 맞는
+경우)를 실사용 중 실제로 발견해 추가했다.
+
+### 10-2. 상세 요건 확보 방법 (`gather_evidence()`)
+
+| 소스 | 방법 | 비고 |
+|---|---|---|
+| 원티드 | 상세 API(`fetch_wanted_description()`, 기존 §13-3과 동일 함수 재사용) | 텍스트로 바로 확보, provider에 텍스트로 전달 |
+| 사람인 | `fetch_saramin_images()` — 본문 이미지 URL을 받아 다운로드 후 provider에 이미지로 전달 | 아래 10-3 참고 |
+
+### 10-3. 사람인 본문 이미지 확보 (`fetch_saramin_images()`)
+
+사람인 공고 상세 본문(자격요건 등)은 **텍스트가 아니라 이미지로 업로드**돼 있다 — 이는
+§13-3에 기록된 "JS 렌더링이라 정적 요청으로 텍스트를 못 가져온다"는 한계보다 근본적인
+문제로, 실제 크롬 브라우저로 렌더링해 텍스트를 추출해도(`get_page_text`) 자격요건이
+전혀 잡히지 않음을 확인했다(본문이 `iframe_content_0`라는 iframe 안에 `<img>` 태그
+하나로만 들어있음).
+
+다만 이 iframe이 가리키는 `https://www.saramin.co.kr/zf_user/jobs/relay/view-detail?
+rec_idx=<rec_idx>` 엔드포인트 자체는 **인증이 필요 없는 정적 HTML**이라, `requests`로
+그대로 요청하면 실제 이미지 URL(`<img src=...>`)을 얻을 수 있다 — 헤드리스 브라우저를
+새로 붙일 필요가 없었다. 아이콘/워터마크 등 장식용 이미지는 URL에 `icon`/`watermark`
+문자열이 포함되는지로 걸러낸다(파일명 패턴 기반, 완벽하지 않음 — OQ8 참고).
+
+```
+fetch_saramin_images(rec_idx):
+  1. GET view-detail?rec_idx=<rec_idx> (정적 요청, 1회 실패 시 재시도)
+  2. 응답 HTML에서 <img src=...> 전부 추출
+  3. src에 icon/watermark가 포함된 것은 제외
+  4. "//"로 시작하는 프로토콜 상대 URL은 "https:"를 붙여 보정
+  5. 남은 URL 목록 반환 (실패 시 빈 리스트)
+```
+
+이미지 자체는 별도 인증 없이 CDN에서 바로 내려받을 수 있어(`_download_images()`), 받은
+이미지를 `Provider.run(images=...)`로 넘긴다 — 비전을 지원하지 않는 provider(예:
+`codex_cli`)는 이미지 내용을 못 읽으므로 사람인 공고는 사실상 항상 `UNKNOWN`이 나온다.
+
+### 10-4. 판정 로직 (`verify_jobs()`)
+
+```
+verify_jobs(jobs_path):
+  1. jobs_all.txt를 블록 단위로 파싱
+  2. [X] 블록과 이미 [검수]가 있는 블록은 건너뜀 (재실행해도 중복 비용 없음)
+  3. 나머지 블록마다:
+     a. gather_evidence(링크)로 상세 텍스트/이미지 확보
+     b. verify_prompt(block, profile, posting_text)로 프롬프트 구성
+     c. PROVIDER_VERIFIER.run(system, user, images=images) 호출
+     d. 응답에서 판정(PASS/CONCERN/UNKNOWN)과 근거 추출 (§10-5)
+     e. "[검수] <판정>: <근거>" 한 줄을 [ID] 줄 바로 앞에 삽입
+  4. 전체 블록을 다시 써서 jobs_all.txt 갱신
+  5. 판정별 건수(checked/pass/concern/unknown) 반환
+```
+
+- `[X]`처럼 파일에서 블록을 제거하지 않는다 — AI 판정이 틀릴 수 있으므로 최종 제외 여부는
+  사용자가 `[검수]` 내용을 읽고 `[X]` 마커로 직접 정한다.
+- provider 호출이 실패하면 해당 블록은 `[검수]` 없이 그대로 남아 다음 `verify` 실행에서
+  다시 시도된다.
+
+### 10-5. 응답 파싱 (`_parse_verdict()`)
+
+시스템 프롬프트는 "첫 줄에 정확히 PASS/CONCERN/UNKNOWN 중 하나만, 마크다운 볼드 없이"
+쓰라고 지시하지만, 실사용 중 모델이 `**CONCERN**`처럼 마크다운으로 감싸거나, 스스로
+"수정: 아래 CONCERN 참고"라며 처음 판정을 뒤집는 경우가 확인됐다. 그래서 파서는:
+
+1. 응답에서 `*` 문자를 제거하고 줄바꿈을 공백으로 합쳐 한 줄로 만든다(`[검수]` 메모가
+   항상 한 줄을 유지해야 다른 필드처럼 블록 파싱이 깨지지 않는다).
+2. `PASS`/`CONCERN`/`UNKNOWN` 단어를 전부 찾아 **마지막 occurrence**를 최종 판정으로
+   삼는다 — 자기 정정 패턴에 더 안전하다(먼저 쓴 판정이 아니라 나중에 확정한 판정을
+   신뢰).
+3. 판정 단어를 하나도 못 찾으면 `UNKNOWN`으로 처리한다.
+4. 찾은 판정 단어를 제거한 나머지를 근거 요약으로 쓴다.
+
+> **알려진 한계(OQ8)**: 사람인 상세 이미지가 자격요건 없이 홍보 배너/복리후생 안내만
+> 담고 있는 공고가 실사용 중 다수 확인됐다 — 이 경우 정직하게 `UNKNOWN`을 반환하지만,
+> 진짜 자격요건이 담긴 이미지가 아이콘 필터링 과정에서 함께 걸러졌거나 애초에
+> `view-detail` 응답에 없을 가능성은 배제하지 못한다. 또한 LLM 특성상 동일 공고를
+> 재검수하면 판정이 달라질 수 있음을 실측으로 확인했다(직무 태그만으로 도메인 미스매치를
+> 짚어낸 실행도, 이미지 내용에만 집중해 그 미스매치를 놓친 실행도 있었음) — 판정은
+> 참고용이며 사용자 최종 확인을 대체하지 않는다.
 
 ---
 

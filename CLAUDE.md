@@ -62,6 +62,7 @@
 │   ├── dedup.py                  # 플랫폼 간 중복 제거
 │   ├── filters.py                # .env 기반 1차 필터 (키워드/지역/경력유형/연차)
 │   ├── relevance.py              # HF 임베딩 기반 2차 필터 — 직무x도메인 랭킹, 상위 top_n만 유지
+│   ├── verification.py           # 상세 요건 최종검수 — AI로 목록 요약 vs 실제 요건 대조
 │   ├── dart.py                   # DART 기업개황 조회 (상장기업만, API 키 있을 때만)
 │   ├── selection.py               # [자소서] 마커 스캔, materials/ 폴더 준비
 │   ├── storage.py                # jobs_all.txt/dismissed_ids.txt 읽기·쓰기, 블록 파싱, 마커 처리
@@ -122,6 +123,8 @@ source venv/Scripts/activate
 
 python jobfind.py collect     # 사람인+원티드 수집 → 1차 필터 → jobs_all.txt에 저장
 python jobfind.py evaluate    # 직무·도메인 관련성 순으로 정렬해 상위 top_n건만 유지
+python jobfind.py verify      # 목록 요약과 실제 상세 요건(사람인은 이미지, 원티드는 텍스트)을
+                               # profile.md와 대조해 [검수] 결과를 남김 (AI 호출, 자동 삭제 안 함)
 python jobfind.py add <url>   # 사람인/원티드 공고 URL을 수동으로 추가
 python jobfind.py select      # jobs_all.txt에서 [자소서]로 표시한 공고에 materials/ 폴더 준비
 python jobfind.py write       # [자소서] 선택된 공고(최대 4개)의 자소서 초안 작성

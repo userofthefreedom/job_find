@@ -79,6 +79,28 @@ def writer_prompt(job_text: str, profile: str, plan: str) -> tuple[str, str]:
     return system, user
 
 
+def verify_prompt(job_text: str, profile: str, posting_text: str) -> tuple[str, str]:
+    system = (
+        "너는 채용 공고 목록 요약과 실제 상세 자격요건을 대조해 지원자가 실제로 지원 "
+        "가능한지 검수하는 전문가다. 목록 페이지 요약(경력·조건)이 상세 요건과 다를 수 "
+        "있다는 점에 특히 주의하라 — 예: 목록엔 '경력'이라고만 나오지만 상세에는 '유관 "
+        "경력 5년 이상'처럼 구체적인 하한이 있는 경우. 이미지가 주어지면 그 안의 텍스트를 "
+        "직접 읽어 자격요건·우대사항을 확인하라.\n\n"
+        "첫 줄에 정확히 'PASS' 또는 'CONCERN' 또는 'UNKNOWN' 중 하나만 쓰고(마크다운 볼드나 "
+        "다른 기호로 감싸지 말고 그 단어만 단독으로), 그 아래에 왜 그렇게 판단했는지 1~3문장으로 "
+        "근거를 적어라. 목록 요약과 실제 요건이 다르지 "
+        "않고 지원자 프로필이 요건을 충족하면 PASS, 요건에 명백히 못 미치면(예: 필요 "
+        "경력 연차가 지원자 경력보다 한참 많음) CONCERN, 상세 내용을 전혀 확인할 수 "
+        "없었던 경우(이미지가 안 읽히는 등)는 UNKNOWN이다. 애매하면 CONCERN으로 판단해 "
+        "사용자가 직접 보게 하라."
+    )
+    parts = [f"[공고 목록 요약]\n{job_text}", f"[지원자 프로필]\n{profile}"]
+    if posting_text:
+        parts.append(f"[상세 공고 텍스트]\n{posting_text}")
+    user = "\n\n".join(parts) + "\n\n이 공고의 상세 요건과 지원자 프로필을 대조해 검수하라."
+    return system, user
+
+
 def draft_evaluator_prompt(job_text: str, draft: str) -> tuple[str, str]:
     system = (
         "너는 자소서 초안을 냉정하게 검토하는 평가자다. 작성자와는 독립적으로 판단한다. "

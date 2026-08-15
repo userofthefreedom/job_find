@@ -125,6 +125,35 @@ def fetch_saramin_detail(rec_idx: str) -> dict | None:
     }
 
 
+def fetch_saramin_images(rec_idx: str) -> list[str]:
+    """상세 공고 본문 이미지 URL 목록을 반환한다. 사람인은 자격요건 등 본문 전체를
+    이미지로 올려두고(§13-3의 "JS 렌더링이라 텍스트를 못 가져온다"보다 근본적인 문제 —
+    아예 텍스트가 없음), 그 이미지는 `view-detail` 엔드포인트가 담당한다. 이 엔드포인트
+    자체는 인증 없는 정적 HTML이라 requests만으로 이미지 URL을 얻을 수 있다(헤드리스
+    브라우저 불필요) — 실제 이미지 픽셀을 읽으려면 비전 지원 provider에 넘겨야 한다.
+    아이콘/워터마크 등 장식용 이미지는 파일명 패턴으로 걸러낸다."""
+    url = "https://www.saramin.co.kr/zf_user/jobs/relay/view-detail"
+    for attempt in range(2):
+        try:
+            resp = requests.get(
+                url,
+                params={"rec_idx": rec_idx},
+                headers={"User-Agent": _UA, "Accept-Language": "ko-KR,ko;q=0.9"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            srcs = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', resp.text)
+            return [
+                ("https:" + s if s.startswith("//") else s)
+                for s in srcs
+                if not re.search(r"icon|watermark", s, re.IGNORECASE)
+            ]
+        except requests.RequestException as e:
+            if attempt == 1:
+                print(f"[사람인] 공고 이미지 조회 오류: {e}")
+    return []
+
+
 def fetch_saramin_all() -> list[dict]:
     jobs: list[dict] = []
     for page in range(1, 11):
