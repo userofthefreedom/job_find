@@ -169,25 +169,43 @@ python fetch_jobs.py
 
 ---
 
-## Phase 5 — 안정성/신뢰성 (v3, 예정)
+## Phase 5 — 안정성/신뢰성 ✅ (2026-08-15 완료)
 
-**목표**: Task Scheduler 무인 실행 중 조용히 실패해도 놓치지 않도록 실행 기록·이상 감지 추가
+**목표**: 조용히 실패해도 놓치지 않도록 실행 기록·이상 감지 추가 (원래는 "Task Scheduler
+무인 실행" 전제로 세운 계획이었으나, v3에서 무인 실행 자체를 폐기해 지금은 "명령을 직접
+실행했을 때도 지난 결과를 나중에 확인할 수 있게" 하는 목적으로 의미가 바뀌었다).
 
-### 작업 목록 (예정)
+### 구현 내용
 
-- [ ] `RUN_LOG_PATH = "output/run_log.txt"` 상수 추가
-- [ ] `print_summary()` 확장 — 콘솔 출력과 동시에 `run_log.txt`에 한 줄 append
-- [ ] 소스 전체 실패 감지 — 사람인·원티드 중 하나라도 0건(요청 자체 실패)이면 `[경고]` 태그로 로그 강조
-- [ ] 사람인 페이지 상한(현재 10페이지/400건) 도달 감지 — 마지막 페이지까지 40건 꽉 채운 채 끝나면 "더 많은 공고가 있을 수 있음" 경고 로그
-- [ ] 페이지 상한 자체를 올릴지는 실행 시간 제약(PRD 비기능요구사항: 60초 이내)과 트레이드오프이므로 착수 시 재논의
+- `jobfind/collectors/saramin.py`의 `fetch_saramin_all()`과
+  `jobfind/collectors/wanted.py`의 `fetch_wanted_all()`을 `(jobs, request_failed, ...)`
+  튜플을 반환하도록 변경 — 첫 페이지/첫 요청 자체가 실패해 0건이 된 경우(`request_failed`)와
+  오늘 신규 공고가 실제로 없어서 0건인 정상 케이스를 구분한다. 사람인은 추가로
+  `page_cap_hit`(10페이지를 40건씩 꽉 채운 채 끝남 — 더 많은 공고가 있을 수 있음)도
+  반환한다.
+- `jobfind/dedup.py`의 `fetch_all()`이 이 신호들을 그대로 상위로 전달하도록 확장.
+- `jobfind/storage.py`에 `append_run_log(line, path)` 추가 — `output/run_log.txt`에
+  한 줄씩 append.
+- `jobfind/cli.py`의 `print_summary()`가 경고 문구를 받아 콘솔 출력 끝에
+  `| [경고] ...`로 붙이고, 그 줄을 그대로 `run_log.txt`에도 남기도록 수정. `collect()`가
+  세 가지 경고(사람인 실패/원티드 실패/사람인 페이지 상한)를 조립해 전달한다.
+- 페이지 상한 자체를 올리는 문제는 이번 범위에서 다루지 않았다 — 감지·경고만 하고 실행
+  시간 제약과의 트레이드오프 판단은 사용자 몫으로 남긴다(원래 계획대로).
 
-### 완료 기준 (예정)
+### 실데이터 검증
 
-```
-python fetch_jobs.py
-# output/run_log.txt 에 실행 시각 + 조회/필터통과/신규저장 건수가 누적 기록됨
-# 사람인 또는 원티드가 실패하면 로그에 [경고] 표시
-```
+단위 테스트(신규 14개 — 첫 페이지 실패/빈 결과/페이지 상한 조합, `fetch_all` 신호 전달,
+`collect()`의 경고 조립·`run_log.txt` 누적)로 로직을 검증한 뒤, 실제 `jobfind.py collect`를
+실행해 확인했다. 공교롭게도 검증 실행 자체에서 실제로 사람인 페이지 상한에 도달해
+`[경고] 사람인 페이지 상한(10페이지) 도달 — 더 많은 공고가 있을 수 있음`이 콘솔과
+`run_log.txt`에 정상적으로 남는 것을 실측으로 확인했다.
+
+### 검증
+
+- 192개 테스트 전부 통과(Phase 5 관련 14개 신규 포함). `fetch_wanted_all()` 구현 중
+  `if not page:`가 "요청 실패(`None`)"와 "정상 응답이지만 0건(`[]`)"을 구분하지 못하는
+  실제 버그를 테스트로 잡아내 `page is None`으로 명시적으로 고쳤다.
+- 실제 `collect` 실행으로 경고 로그 생성까지 end-to-end 확인.
 
 ---
 
@@ -622,7 +640,7 @@ CONCERN으로 잡혔다. 결과: PASS 2 · CONCERN 7 · UNKNOWN 2(대부분 사�
 | 2 | `fetch_jobs.py` (API 조회·저장·중복 제거) |
 | 3 | `fetch_jobs.py` (필터 함수 추가) |
 | 4 | `fetch_jobs.py` (X 마커 처리 추가) |
-| 5 (미착수) | `fetch_jobs.py` (실행 로그·이상 감지 추가) — Phase 8~13에 우선순위 밀림 |
+| 5 | `jobfind/collectors/{saramin,wanted}.py`(request_failed/page_cap_hit 반환), `jobfind/dedup.py`(신호 전달), `jobfind/storage.py`(append_run_log), `jobfind/cli.py`(경고 조립 + run_log 기록) — 2026-08-15 완료 |
 | 6 (미착수) | `fetch_jobs.py`, `config.ini`, `docs/SPEC.md` (필터 로직 확장) — Phase 8~13에 우선순위 밀림 |
 | 7 (미착수) | `fetch_jobs.py`, `docs/SPEC.md` (상태 마커 추가) — Phase 8~13에 우선순위 밀림 |
 | 8 | `jobfind/` 패키지 전체(신설), `fetch_jobs.py`/`tests/test_fetch_jobs.py` 삭제 |
@@ -660,3 +678,4 @@ CONCERN으로 잡혔다. 결과: PASS 2 · CONCERN 7 · UNKNOWN 2(대부분 사�
 | 2026-08-15 | docs/ 문서 재구성 — 완료 Phase 상세 기록을 `docs/history/`로 이관, 루트 문서는 현재상태 요약본으로 재작성(에이전트 컨텍스트 과다로 인한 환각 방지 목적) |
 | 2026-08-15 | Phase 0(로컬 환경 세팅) 완료 — venv/의존성 설치, `.env`를 `profile.md` 기반으로 구성, `profile.md`를 `이력서_job.pdf`+`자소서_원본.md` 분석으로 작성 |
 | 2026-08-15 | Phase 16 추가 — 공고 최종검수(`verify`) 신설: 목록 요약과 실제 상세 요건(사람인은 `view-detail` 엔드포인트로 확보한 이미지, 원티드는 상세 API 텍스트)을 AI로 대조해 PASS/CONCERN/UNKNOWN 판정을 남김. 실사용 검증 중 사람인이 본문을 이미지로 올린다는 사실과, 인증 없는 정적 엔드포인트로 그 이미지 URL을 얻을 수 있다는 점을 발견(헤드리스 브라우저 불필요). 판정 파싱 강건화(마크다운 볼드 제거, 자기 정정 시 마지막 판정 채택) 포함. 세부 내용은 위 Phase 16 섹션 참고 |
+| 2026-08-15 | Phase 5 완료 — 2026-07-10에 세운 로드맵 초안을 지금 구조(`jobfind/` 패키지)에 맞게 구현: 소스 요청 자체 실패와 정상적인 0건(오늘 신규 공고 없음)을 구분하는 신호를 `fetch_saramin_all`/`fetch_wanted_all`에 추가하고, 사람인 페이지 상한 도달 감지를 붙여 `collect` 실행 시 콘솔+`output/run_log.txt`에 `[경고]`로 남긴다. 구현 중 `fetch_wanted_all`의 "빈 응답"과 "요청 실패" 구분 버그를 테스트로 발견해 수정. 세부 내용은 위 Phase 5 섹션 참고 |

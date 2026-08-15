@@ -12,6 +12,7 @@ from jobfind.pipeline.orchestrator import run_for_job
 from jobfind.relevance import evaluate_relevance
 from jobfind.selection import MAX_SELECTED, selected_ids, sync_materials_folders
 from jobfind.storage import (
+    append_run_log,
     ensure_output_dir,
     find_block,
     load_active_ids,
@@ -26,22 +27,38 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 JOBS_PATH = "output/jobs_all.txt"
 DISMISSED_PATH = "output/dismissed_ids.txt"
+RUN_LOG_PATH = "output/run_log.txt"
 
 
-def print_summary(total: int, x_removed: int, filtered: int, new: int) -> None:
+def print_summary(total: int, x_removed: int, filtered: int, new: int, warnings: list[str]) -> str:
+    """콘솔에 요약을 출력하고, run_log.txt에 그대로 남길 한 줄을 반환한다 (Phase 5)."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    print(f"[{now}] 조회: {total}건 | X 처리: {x_removed}건 | 필터 통과: {filtered}건 | 신규 저장: {new}건")
+    line = f"[{now}] 조회: {total}건 | X 처리: {x_removed}건 | 필터 통과: {filtered}건 | 신규 저장: {new}건"
+    if warnings:
+        line += " | [경고] " + " / ".join(warnings)
+    print(line)
+    return line
 
 
 def collect() -> None:
     ensure_output_dir()
     x_count = process_x_markers(JOBS_PATH, DISMISSED_PATH)
     skip_ids = load_active_ids(JOBS_PATH) | load_dismissed_ids(DISMISSED_PATH)
-    jobs = fetch_all()
+    jobs, saramin_failed, wanted_failed, page_cap_hit = fetch_all()
     filtered = filter_jobs(jobs)
     new_jobs = [j for j in filtered if j["id"] not in skip_ids]
     write_jobs(new_jobs, JOBS_PATH)
-    print_summary(len(jobs), x_count, len(filtered), len(new_jobs))
+
+    warnings = []
+    if saramin_failed:
+        warnings.append("사람인 소스 전체 실패(요청 오류로 0건)")
+    if wanted_failed:
+        warnings.append("원티드 소스 전체 실패(요청 오류로 0건)")
+    if page_cap_hit:
+        warnings.append("사람인 페이지 상한(10페이지) 도달 — 더 많은 공고가 있을 수 있음")
+
+    line = print_summary(len(jobs), x_count, len(filtered), len(new_jobs), warnings)
+    append_run_log(line, RUN_LOG_PATH)
 
 
 def evaluate() -> None:

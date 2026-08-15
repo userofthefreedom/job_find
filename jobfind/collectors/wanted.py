@@ -90,11 +90,15 @@ def fetch_wanted_description(job_id: str) -> str:
     return "\n\n".join(parts)
 
 
-def fetch_wanted_all() -> list[dict]:
+def fetch_wanted_all() -> tuple[list[dict], bool]:
+    """반환: (jobs, request_failed) — 첫 요청 자체가 실패해 0건이 된 경우 request_failed=True
+    (Phase 5, 오늘 신규 공고가 실제로 없어서 0건인 정상 케이스와 구분하기 위함)."""
     jobs: list[dict] = []
     offset = 0
     while offset < 100:
         page = fetch_wanted_page(offset)
+        if page is None:
+            return jobs, offset == 0
         if not page:
             break
         for item in page:
@@ -104,4 +108,4 @@ def fetch_wanted_all() -> list[dict]:
         if len(page) < 20:
             break
         offset += len(page)
-    return jobs
+    return jobs, False

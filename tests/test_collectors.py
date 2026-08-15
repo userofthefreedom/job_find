@@ -5,11 +5,17 @@ from bs4 import BeautifulSoup
 
 from jobfind.collectors.saramin import (
     _parse_og_description,
+    fetch_saramin_all,
     fetch_saramin_images,
     normalize_saramin,
     parse_saramin_date,
 )
-from jobfind.collectors.wanted import _wanted_experience, fetch_wanted_description, normalize_wanted
+from jobfind.collectors.wanted import (
+    _wanted_experience,
+    fetch_wanted_all,
+    fetch_wanted_description,
+    normalize_wanted,
+)
 
 # ── parse_saramin_date ────────────────────────────────────────────────────────
 
@@ -226,3 +232,93 @@ def test_fetch_saramin_images_request_failure_returns_empty(monkeypatch):
     monkeypatch.setattr(mod.requests, "get", _raise)
 
     assert fetch_saramin_images("1") == []
+
+
+# ── fetch_saramin_all (Phase 5: 실패/페이지 상한 감지) ──────────────────────
+
+def _saramin_page_html(n, start=1):
+    items = "".join(_SARAMIN_HTML.replace("12345", str(start + i)) for i in range(n))
+    return items.encode("utf-8")
+
+
+def test_fetch_saramin_all_first_page_failure_reports_request_failed(monkeypatch):
+    import jobfind.collectors.saramin as mod
+
+    monkeypatch.setattr(mod, "fetch_saramin_page", lambda page: None)
+
+    jobs, request_failed, page_cap_hit = fetch_saramin_all()
+
+    assert jobs == []
+    assert request_failed is True
+    assert page_cap_hit is False
+
+
+def test_fetch_saramin_all_empty_first_page_is_not_a_failure(monkeypatch):
+    import jobfind.collectors.saramin as mod
+
+    monkeypatch.setattr(mod, "fetch_saramin_page", lambda page: b"<div>no results today</div>")
+
+    jobs, request_failed, page_cap_hit = fetch_saramin_all()
+
+    assert jobs == []
+    assert request_failed is False
+    assert page_cap_hit is False
+
+
+def test_fetch_saramin_all_partial_last_page_no_cap(monkeypatch):
+    import jobfind.collectors.saramin as mod
+
+    monkeypatch.setattr(mod, "fetch_saramin_page", lambda page: _saramin_page_html(5))
+
+    jobs, request_failed, page_cap_hit = fetch_saramin_all()
+
+    assert len(jobs) == 5
+    assert request_failed is False
+    assert page_cap_hit is False
+
+
+def test_fetch_saramin_all_hits_page_cap_when_all_pages_full(monkeypatch):
+    import jobfind.collectors.saramin as mod
+
+    monkeypatch.setattr(mod, "fetch_saramin_page", lambda page: _saramin_page_html(40, start=page * 1000))
+
+    jobs, request_failed, page_cap_hit = fetch_saramin_all()
+
+    assert len(jobs) == 400  # 10페이지 × 40건
+    assert request_failed is False
+    assert page_cap_hit is True
+
+
+# ── fetch_wanted_all (Phase 5: 실패 감지) ───────────────────────────────────
+
+def test_fetch_wanted_all_first_request_failure_reports_request_failed(monkeypatch):
+    import jobfind.collectors.wanted as mod
+
+    monkeypatch.setattr(mod, "fetch_wanted_page", lambda offset: None)
+
+    jobs, request_failed = fetch_wanted_all()
+
+    assert jobs == []
+    assert request_failed is True
+
+
+def test_fetch_wanted_all_empty_first_page_is_not_a_failure(monkeypatch):
+    import jobfind.collectors.wanted as mod
+
+    monkeypatch.setattr(mod, "fetch_wanted_page", lambda offset: [])
+
+    jobs, request_failed = fetch_wanted_all()
+
+    assert jobs == []
+    assert request_failed is False
+
+
+def test_fetch_wanted_all_normal_partial_page(monkeypatch):
+    import jobfind.collectors.wanted as mod
+
+    monkeypatch.setattr(mod, "fetch_wanted_page", lambda offset: [_WANTED_ITEM] if offset == 0 else [])
+
+    jobs, request_failed = fetch_wanted_all()
+
+    assert len(jobs) == 1
+    assert request_failed is False

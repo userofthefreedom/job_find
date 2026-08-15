@@ -9,6 +9,13 @@ def ensure_output_dir() -> None:
     os.makedirs("output", exist_ok=True)
 
 
+def append_run_log(line: str, path: str) -> None:
+    """collect 실행 요약을 output/run_log.txt에 누적한다 (Phase 5, 안정성/신뢰성).
+    콘솔 출력과 별도로 남겨 무인 실행이 아니어도 지난 실행 이력을 나중에 확인할 수 있게 한다."""
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
 def format_block(job: dict) -> str:
     today = datetime.now().strftime("%Y-%m-%d")
     cond = " | ".join(p for p in [job["location"], job["job_type"], job["experience"]] if p)

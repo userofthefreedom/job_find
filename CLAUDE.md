@@ -78,6 +78,7 @@
 ├── output/                       # 실행 결과 저장 폴더 (전체 Git 제외)
 │   ├── jobs_all.txt
 │   ├── dismissed_ids.txt
+│   ├── run_log.txt                # collect 실행 이력 누적 (소스 실패/페이지 상한 [경고])
 │   └── cover_letters/<공고ID>/  # plan.md, plan_review.md, draft.md, draft_review.md, materials/
 ├── tests/
 └── docs/                         # 기획·설계 문서 (루트는 항상 최신 상태 요약본)

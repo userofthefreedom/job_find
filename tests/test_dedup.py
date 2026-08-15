@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from jobfind.dedup import _norm_title, deduplicate_cross_platform
+import jobfind.dedup as dedup_mod
+from jobfind.dedup import _norm_title, deduplicate_cross_platform, fetch_all
 
 
 def _job(source, title, deadline="2026-08-31", location="서울", job_id="x"):
@@ -29,3 +30,30 @@ def test_dedup_keeps_if_different_deadline_and_location():
 
 def test_norm_title_strips_spaces_and_lowercases():
     assert _norm_title("Python 백엔드  개발자") == "python백엔드개발자"
+
+
+# ── fetch_all (Phase 5: 소스별 실패/상한 신호 전달) ─────────────────────────
+
+def test_fetch_all_propagates_failure_and_cap_signals(monkeypatch):
+    s = [_job("사람인", "백엔드 개발자", job_id="saramin_1")]
+    w = [_job("원티드", "프론트엔드 개발자", job_id="wanted_1")]
+    monkeypatch.setattr(dedup_mod, "fetch_saramin_all", lambda: (s, True, True))
+    monkeypatch.setattr(dedup_mod, "fetch_wanted_all", lambda: (w, False))
+
+    jobs, saramin_failed, wanted_failed, page_cap_hit = fetch_all()
+
+    ids = [j["id"] for j in jobs]
+    assert "saramin_1" in ids and "wanted_1" in ids
+    assert saramin_failed is True
+    assert wanted_failed is False
+    assert page_cap_hit is True
+
+
+def test_fetch_all_no_warnings_on_normal_run(monkeypatch):
+    monkeypatch.setattr(dedup_mod, "fetch_saramin_all", lambda: ([], False, False))
+    monkeypatch.setattr(dedup_mod, "fetch_wanted_all", lambda: ([], False))
+
+    jobs, saramin_failed, wanted_failed, page_cap_hit = fetch_all()
+
+    assert jobs == []
+    assert (saramin_failed, wanted_failed, page_cap_hit) == (False, False, False)

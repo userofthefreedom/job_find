@@ -154,19 +154,25 @@ def fetch_saramin_images(rec_idx: str) -> list[str]:
     return []
 
 
-def fetch_saramin_all() -> list[dict]:
+def fetch_saramin_all() -> tuple[list[dict], bool, bool]:
+    """반환: (jobs, request_failed, page_cap_hit).
+
+    request_failed: 첫 페이지 요청 자체가 실패해 0건이 된 경우 True (오늘 공고가 실제로
+    없어서 0건인 정상 케이스와 구분하기 위함, Phase 5).
+    page_cap_hit: 10페이지(최대 400건)를 전부 40건씩 꽉 채운 채 끝나 더 많은 공고가 있을
+    수 있는 경우 True."""
     jobs: list[dict] = []
     for page in range(1, 11):
         content = fetch_saramin_page(page)
         if not content:
-            break
+            return jobs, page == 1, False
         items = BeautifulSoup(content, "html.parser").select("div.item_recruit")
         if not items:
-            break
+            return jobs, False, False
         for item in items:
             job = normalize_saramin(item)
             if job:
                 jobs.append(job)
         if len(items) < 40:
-            break
-    return jobs
+            return jobs, False, False
+    return jobs, False, True

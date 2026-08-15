@@ -1,6 +1,6 @@
 # SPEC — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 16: 공고 최종검수 `verify` 명세 §10 추가) | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 5: run_log.txt §5-3 추가) | 기반 문서: PRD.md_
 
 ---
 
@@ -491,6 +491,28 @@ saramin_73261234
 wanted_12345
 ```
 
+### 5-3. run_log 파일 (Phase 5)
+
+경로: `output/run_log.txt`  
+인코딩: UTF-8  
+모드: append (`a`)
+
+`collect` 실행마다 콘솔에 출력한 요약과 동일한 한 줄을 그대로 append한다.
+
+```
+[2026-08-15 19:45] 조회: 500건 | X 처리: 0건 | 필터 통과: 14건 | 신규 저장: 8건 | [경고] 사람인 페이지 상한(10페이지) 도달 — 더 많은 공고가 있을 수 있음
+```
+
+`[경고]` 구간은 다음 중 하나라도 해당하면 붙는다(§6 참고):
+
+- 사람인 또는 원티드의 **첫 페이지/첫 요청 자체**가 실패해 0건이 된 경우 (오늘 신규 공고가
+  실제로 없는 정상적인 0건과는 `fetch_saramin_all()`/`fetch_wanted_all()`이 반환하는
+  `request_failed` 플래그로 구분한다 — 첫 요청이 살아있는데 두 번째 페이지부터 실패하는
+  경우는 경고 대상이 아니다, 이미 얻은 결과는 그대로 쓴다)
+- 사람인이 10페이지(최대 400건)를 매 페이지 40건씩 꽉 채운 채 끝난 경우(`page_cap_hit`) —
+  더 많은 공고가 있을 수 있다는 뜻이며, 상한 자체를 올릴지는 실행 시간 제약과의
+  트레이드오프라 자동으로 처리하지 않고 경고만 남긴다.
+
 ---
 
 ## 6. 오류 처리 명세
@@ -503,6 +525,8 @@ wanted_12345
 | 원티드 API 응답 파싱 실패 (KeyError 등) | 해당 공고 건너뜀, 경고 출력 후 계속 |
 | `output/` 디렉토리 없음 | 자동 생성 |
 | 두 소스 모두 실패 | 0건 처리 후 요약 출력, 정상 종료 |
+| 사람인/원티드 첫 요청 자체 실패(§5-3) | 콘솔 + `run_log.txt`에 `[경고]`로 강조(Phase 5) — 조용히 0건 처리되던 것과 구분 |
+| 사람인 페이지 상한 도달(§5-3) | 콘솔 + `run_log.txt`에 `[경고]`로 강조(Phase 5) |
 
 > 어느 한 소스가 실패해도 나머지 소스 결과는 정상 처리한다.
 
@@ -517,11 +541,13 @@ jobfind.py collect
  ├─ ensure_output_dir()            → output/ 없으면 생성
  ├─ process_x_markers()            → [X] 블록 제거 + dismissed_ids.txt 기록 (§4-5)
  ├─ skip_ids = active | dismissed
- ├─ jobs = fetch_all()             → fetch_saramin_all() + fetch_wanted_all() + dedup
+ ├─ jobs, saramin_failed, wanted_failed, page_cap_hit = fetch_all()
+ │                                   → fetch_saramin_all() + fetch_wanted_all() + dedup (§5-3)
  ├─ filtered = filter_jobs(jobs)   → .env FILTER_* 조건 적용 (§3)
  ├─ new_jobs = filtered - skip_ids
  ├─ write_jobs(new_jobs)           → jobs_all.txt 에 append
- └─ print_summary(...)
+ ├─ print_summary(..., warnings)   → 콘솔 출력, [경고] 문구 조립 (§5-3)
+ └─ append_run_log(...)            → run_log.txt에 동일한 줄 append (§5-3)
 
 jobfind.py evaluate
  └─ evaluate_relevance()           → HF 임베딩으로 직무x도메인 랭킹, 상위 top_n건만 유지 (§11)
