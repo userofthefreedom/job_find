@@ -36,10 +36,19 @@ def filter_location(job: dict) -> bool:
 
 
 def filter_career_type(job: dict) -> bool:
-    if config.CAREER_TYPE is None:
+    if not config.CAREER_TYPE:
         return True
-    equivalents = _CAREER_EQUIVALENTS.get(config.CAREER_TYPE, [config.CAREER_TYPE])
-    return any(e in job["experience"] for e in equivalents)
+    return any(
+        e in job["experience"]
+        for career_type in config.CAREER_TYPE
+        for e in _CAREER_EQUIVALENTS.get(career_type, [career_type])
+    )
+
+
+def filter_company_blacklist(job: dict) -> bool:
+    if not config.EXCLUDE_COMPANIES:
+        return True
+    return not any(name in job["company"] for name in config.EXCLUDE_COMPANIES)
 
 
 def filter_exp_range(job: dict) -> bool:
@@ -58,4 +67,5 @@ def filter_jobs(jobs: list[dict]) -> list[dict]:
         j for j in jobs
         if filter_keywords(j) and filter_location(j)
         and filter_career_type(j) and filter_exp_range(j)
+        and filter_company_blacklist(j)
     ]

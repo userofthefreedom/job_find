@@ -22,34 +22,43 @@ def test_load_config_reads_env(monkeypatch):
     monkeypatch.setenv("FILTER_EXP_MIN", "1")
     monkeypatch.setenv("FILTER_EXP_MAX", "5")
     monkeypatch.setenv("FILTER_EXCLUDE_KEYWORDS", "교육생")
+    monkeypatch.setenv("FILTER_EXCLUDE_COMPANIES", "블랙기업")
     cfg = load_config()
     assert cfg.KEYWORDS == ["Python", "백엔드"]
     assert cfg.LOCATIONS == ["서울"]
-    assert cfg.CAREER_TYPE == "경력"
+    assert cfg.CAREER_TYPE == ["경력"]
     assert cfg.EXP_MIN == 1
     assert cfg.EXP_MAX == 5
     assert cfg.EXCLUDE_KEYWORDS == ["교육생"]
+    assert cfg.EXCLUDE_COMPANIES == ["블랙기업"]
+
+def test_load_config_career_type_multi_select(monkeypatch):
+    monkeypatch.setenv("FILTER_CAREER_TYPE", "신입, 경력무관")
+    cfg = load_config()
+    assert cfg.CAREER_TYPE == ["신입", "경력무관"]
 
 def test_load_config_blank_fields_allow_all(monkeypatch):
     for key in [
         "FILTER_KEYWORDS", "FILTER_LOCATIONS", "FILTER_CAREER_TYPE",
         "FILTER_EXP_MIN", "FILTER_EXP_MAX", "FILTER_EXCLUDE_KEYWORDS",
+        "FILTER_EXCLUDE_COMPANIES",
     ]:
         monkeypatch.setenv(key, "")
     cfg = load_config()
     assert cfg.KEYWORDS == []
     assert cfg.LOCATIONS == []
-    assert cfg.CAREER_TYPE is None
+    assert cfg.CAREER_TYPE == []
     assert cfg.EXP_MIN is None
     assert cfg.EXP_MAX is None
     assert cfg.EXCLUDE_KEYWORDS == []
+    assert cfg.EXCLUDE_COMPANIES == []
 
 def test_load_config_missing_env_allows_all(monkeypatch):
     monkeypatch.delenv("FILTER_KEYWORDS", raising=False)
     monkeypatch.delenv("FILTER_CAREER_TYPE", raising=False)
     cfg = load_config()
     assert cfg.KEYWORDS == []
-    assert cfg.CAREER_TYPE is None
+    assert cfg.CAREER_TYPE == []
 
 def test_load_config_providers_defaults_to_claude_cli(monkeypatch):
     for key in [

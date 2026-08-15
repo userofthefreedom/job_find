@@ -1,8 +1,19 @@
 from __future__ import annotations
 import os
-from datetime import datetime
+from datetime import date, datetime
 
 DIVIDER = "═" * 48
+
+
+def _format_deadline(deadline: str) -> str:
+    """마감일에 D-day를 붙인다 (Phase 6, 예: "2026-08-31 (D-16)"). 형식이 다르거나
+    파싱 실패하면(예상치 못한 값) 원본 문자열을 그대로 반환해 저장 자체는 막지 않는다."""
+    try:
+        d = date.fromisoformat(deadline)
+    except ValueError:
+        return deadline
+    days_left = (d - date.today()).days
+    return f"{deadline} (마감)" if days_left < 0 else f"{deadline} (D-{days_left})"
 
 
 def ensure_output_dir() -> None:
@@ -33,7 +44,7 @@ def format_block(job: dict) -> str:
         lines.append(f"[직무]   {job['keyword']}")
     lines.append(f"[링크]   {job['url']}")
     if job["deadline"]:
-        lines.append(f"[마감]   {job['deadline']}")
+        lines.append(f"[마감]   {_format_deadline(job['deadline'])}")
     lines += [f"[ID]     {job['id']}", DIVIDER]
     return "\n".join(lines) + "\n"
 

@@ -17,15 +17,15 @@ def _parse_optional_int(value: str) -> int | None:
 
 
 def load_config() -> SimpleNamespace:
-    career_type = os.environ.get("FILTER_CAREER_TYPE", "").strip()
     top_n_raw = os.environ.get("RELEVANCE_TOP_N", "20").strip()
     return SimpleNamespace(
         KEYWORDS=_parse_list(os.environ.get("FILTER_KEYWORDS", "")),
         LOCATIONS=_parse_list(os.environ.get("FILTER_LOCATIONS", "")),
-        CAREER_TYPE=career_type or None,
+        CAREER_TYPE=_parse_list(os.environ.get("FILTER_CAREER_TYPE", "")),
         EXP_MIN=_parse_optional_int(os.environ.get("FILTER_EXP_MIN", "")),
         EXP_MAX=_parse_optional_int(os.environ.get("FILTER_EXP_MAX", "")),
         EXCLUDE_KEYWORDS=_parse_list(os.environ.get("FILTER_EXCLUDE_KEYWORDS", "")),
+        EXCLUDE_COMPANIES=_parse_list(os.environ.get("FILTER_EXCLUDE_COMPANIES", "")),
         RELEVANCE_ROLES=os.environ.get("RELEVANCE_ROLES", "").strip(),
         RELEVANCE_DOMAINS=os.environ.get("RELEVANCE_DOMAINS", "").strip(),
         RELEVANCE_MODEL=os.environ.get(

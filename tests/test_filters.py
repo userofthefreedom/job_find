@@ -3,6 +3,7 @@ from __future__ import annotations
 from jobfind.config import config
 from jobfind.filters import (
     filter_career_type,
+    filter_company_blacklist,
     filter_exp_range,
     filter_jobs,
     filter_keywords,
@@ -11,7 +12,7 @@ from jobfind.filters import (
 
 
 def _job_stub(**kwargs):
-    base = {"title": "", "keyword": "", "location": "", "experience": "", "job_type": ""}
+    base = {"title": "", "keyword": "", "location": "", "experience": "", "job_type": "", "company": ""}
     return {**base, **kwargs}
 
 
@@ -86,33 +87,55 @@ def test_filter_location_empty_allows_all(monkeypatch):
 
 # ── filter_career_type ────────────────────────────────────────────────────────
 
-def test_filter_career_type_none_allows_all(monkeypatch):
-    monkeypatch.setattr(config, "CAREER_TYPE", None)
+def test_filter_career_type_empty_allows_all(monkeypatch):
+    monkeypatch.setattr(config, "CAREER_TYPE", [])
     assert filter_career_type(_job_stub(experience="신입"))
 
 def test_filter_career_type_match(monkeypatch):
-    monkeypatch.setattr(config, "CAREER_TYPE", "경력")
+    monkeypatch.setattr(config, "CAREER_TYPE", ["경력"])
     assert filter_career_type(_job_stub(experience="경력 3~5년"))
 
 def test_filter_career_type_both_accepts_entry_only(monkeypatch):
-    monkeypatch.setattr(config, "CAREER_TYPE", "신입·경력")
+    monkeypatch.setattr(config, "CAREER_TYPE", ["신입·경력"])
     assert filter_career_type(_job_stub(experience="신입"))
 
 def test_filter_career_type_both_accepts_career_unrestricted(monkeypatch):
-    monkeypatch.setattr(config, "CAREER_TYPE", "신입·경력")
+    monkeypatch.setattr(config, "CAREER_TYPE", ["신입·경력"])
     assert filter_career_type(_job_stub(experience="경력무관"))
 
 def test_filter_career_type_both_accepts_specific_range(monkeypatch):
-    monkeypatch.setattr(config, "CAREER_TYPE", "신입·경력")
+    monkeypatch.setattr(config, "CAREER_TYPE", ["신입·경력"])
     assert filter_career_type(_job_stub(experience="경력 3~8년"))
 
 def test_filter_career_type_both_rejects_blank(monkeypatch):
-    monkeypatch.setattr(config, "CAREER_TYPE", "신입·경력")
+    monkeypatch.setattr(config, "CAREER_TYPE", ["신입·경력"])
     assert not filter_career_type(_job_stub(experience=""))
 
 def test_filter_career_type_no_match(monkeypatch):
-    monkeypatch.setattr(config, "CAREER_TYPE", "경력")
+    monkeypatch.setattr(config, "CAREER_TYPE", ["경력"])
     assert not filter_career_type(_job_stub(experience="신입"))
+
+def test_filter_career_type_multi_select_matches_either(monkeypatch):
+    # Phase 6: "신입, 경력무관"처럼 여러 값을 선택하면 그중 하나라도 맞으면 통과
+    monkeypatch.setattr(config, "CAREER_TYPE", ["신입", "경력무관"])
+    assert filter_career_type(_job_stub(experience="경력무관"))
+    assert filter_career_type(_job_stub(experience="신입"))
+    assert not filter_career_type(_job_stub(experience="경력 5~10년"))
+
+
+# ── filter_company_blacklist (Phase 6) ──────────────────────────────────────
+
+def test_filter_company_blacklist_empty_allows_all(monkeypatch):
+    monkeypatch.setattr(config, "EXCLUDE_COMPANIES", [])
+    assert filter_company_blacklist(_job_stub(company="아무회사"))
+
+def test_filter_company_blacklist_blocks_match(monkeypatch):
+    monkeypatch.setattr(config, "EXCLUDE_COMPANIES", ["블랙기업"])
+    assert not filter_company_blacklist(_job_stub(company="(주)블랙기업"))
+
+def test_filter_company_blacklist_allows_non_match(monkeypatch):
+    monkeypatch.setattr(config, "EXCLUDE_COMPANIES", ["블랙기업"])
+    assert filter_company_blacklist(_job_stub(company="(주)좋은회사"))
 
 
 # ── filter_exp_range ──────────────────────────────────────────────────────────
@@ -148,9 +171,10 @@ def test_filter_exp_range_single_number(monkeypatch):
 def test_filter_jobs_and_logic(monkeypatch):
     monkeypatch.setattr(config, "KEYWORDS", ["Python"])
     monkeypatch.setattr(config, "LOCATIONS", ["서울"])
-    monkeypatch.setattr(config, "CAREER_TYPE", None)
+    monkeypatch.setattr(config, "CAREER_TYPE", [])
     monkeypatch.setattr(config, "EXP_MIN", None)
     monkeypatch.setattr(config, "EXP_MAX", None)
+    monkeypatch.setattr(config, "EXCLUDE_COMPANIES", [])
     jobs = [
         _job_stub(title="Python 백엔드", location="서울"),   # 통과
         _job_stub(title="Java 백엔드", location="서울"),     # 키워드 불일치
@@ -159,3 +183,18 @@ def test_filter_jobs_and_logic(monkeypatch):
     result = filter_jobs(jobs)
     assert len(result) == 1
     assert result[0]["title"] == "Python 백엔드"
+
+def test_filter_jobs_blocks_blacklisted_company(monkeypatch):
+    monkeypatch.setattr(config, "KEYWORDS", [])
+    monkeypatch.setattr(config, "LOCATIONS", [])
+    monkeypatch.setattr(config, "CAREER_TYPE", [])
+    monkeypatch.setattr(config, "EXP_MIN", None)
+    monkeypatch.setattr(config, "EXP_MAX", None)
+    monkeypatch.setattr(config, "EXCLUDE_COMPANIES", ["블랙기업"])
+    jobs = [
+        _job_stub(title="백엔드", company="(주)블랙기업"),
+        _job_stub(title="백엔드", company="(주)좋은회사"),
+    ]
+    result = filter_jobs(jobs)
+    assert len(result) == 1
+    assert result[0]["company"] == "(주)좋은회사"

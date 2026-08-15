@@ -1,9 +1,11 @@
 from __future__ import annotations
 import os
 import tempfile
+from datetime import date, timedelta
 
 from jobfind.storage import (
     DIVIDER,
+    _format_deadline,
     extract_id,
     find_block,
     format_block,
@@ -27,7 +29,7 @@ _JOB = {
     "experience": "경력 3~5년",
     "keyword": "Python, Django",
     "url": "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=12345",
-    "deadline": "2026-08-31",
+    "deadline": (date.today() + timedelta(days=16)).isoformat(),
 }
 
 def test_format_block_contains_required_fields():
@@ -36,9 +38,27 @@ def test_format_block_contains_required_fields():
     assert "[ID]     saramin_12345" in block
     assert "[제목]   Python 백엔드 개발자" in block
     assert "[직무]   Python, Django" in block
-    assert "[마감]   2026-08-31" in block
+    assert f"[마감]   {_JOB['deadline']} (D-16)" in block
     assert block.startswith("═")
     assert block.rstrip().endswith("═" * 48)
+
+
+# ── _format_deadline (Phase 6: D-day 표시) ──────────────────────────────────
+
+def test_format_deadline_future_date():
+    deadline = (date.today() + timedelta(days=3)).isoformat()
+    assert _format_deadline(deadline) == f"{deadline} (D-3)"
+
+def test_format_deadline_today():
+    deadline = date.today().isoformat()
+    assert _format_deadline(deadline) == f"{deadline} (D-0)"
+
+def test_format_deadline_past_date_shows_expired():
+    deadline = (date.today() - timedelta(days=1)).isoformat()
+    assert _format_deadline(deadline) == f"{deadline} (마감)"
+
+def test_format_deadline_unparseable_returns_as_is():
+    assert _format_deadline("상시채용") == "상시채용"
 
 def test_format_block_skips_empty_keyword():
     job = {**_JOB, "keyword": ""}

@@ -1,6 +1,6 @@
 # PRD — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 5: `run_log.txt` 실행 기록 §6-10 추가)_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 6: career_type 다중선택·회사 블랙리스트 §6-2 추가, exp_range overlap 유지 확정)_
 
 ---
 
@@ -101,8 +101,12 @@ _작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 5: `run_log.txt` 실�
 ### 6-2. 필터 조건 (`.env` — 상세 매칭 규칙은 `docs/SPEC.md` 참고)
 
 `FILTER_KEYWORDS`/`FILTER_LOCATIONS`/`FILTER_CAREER_TYPE`/`FILTER_EXP_MIN`/`FILTER_EXP_MAX`/
-`FILTER_EXCLUDE_KEYWORDS` 환경변수로 정의한다. 조건이 비어 있으면 해당 조건을 무시한다
-(전체 허용).
+`FILTER_EXCLUDE_KEYWORDS`/`FILTER_EXCLUDE_COMPANIES` 환경변수로 정의한다. 조건이 비어 있으면
+해당 조건을 무시한다(전체 허용). `FILTER_CAREER_TYPE`은 쉼표로 여러 값을 선택할 수 있다(예:
+"신입, 경력무관" — Phase 6). 경력 연차 필터(`FILTER_EXP_MIN`/`MAX`)는 공고 요구 범위와 설정
+범위가 조금이라도 겹치면 통과하는 overlap 방식을 유지한다 — Phase 6에서 "설정 범위 안에
+완전히 포함될 때만 통과"하는 containment 방식으로 바꾸는 안을 검토했으나, 지원 가능한
+시니어 공고까지 넓게 보고 싶다는 판단으로 현재 방식을 유지하기로 확정했다.
 
 ### 6-3. 관련성 랭킹 (`jobfind.py evaluate`)
 

@@ -174,15 +174,20 @@ FILTER_KEYWORDS=기획, PM
 # 근무 지역. 비워두면 전국 다 통과
 FILTER_LOCATIONS=서울, 판교
 
-# 신입 / 경력 / 신입·경력 중 하나. 비워두면 전체 허용
+# 신입 / 경력 / 신입·경력 중 하나 이상, 쉼표로 여러 개 선택 가능(예: "신입, 경력무관"). 비워두면 전체 허용
 FILTER_CAREER_TYPE=신입·경력
 
 # 경력 연차 범위 (숫자만). 하한/상한 중 하나만 비워둘 수도 있음
+# 공고 요구 범위와 조금이라도 겹치면 통과합니다(예: 1~5년으로 설정해도 공고가 3~10년이면 통과) —
+# 시니어 공고까지 넓게 보고 싶다는 판단으로 계속 이 방식을 씁니다
 FILTER_EXP_MIN=
 FILTER_EXP_MAX=5
 
 # 채용공고가 아닌 것으로 보고 제외할 단어
 FILTER_EXCLUDE_KEYWORDS=교육생, 무료교육, 설명회, 상시채용
+
+# 지원하고 싶지 않은 회사명. 회사명에 부분 포함되면 제외. 비워두면 전체 허용
+FILTER_EXCLUDE_COMPANIES=
 ```
 
 **예시로 이해하기**: `FILTER_KEYWORDS=기획, PM`이면 제목에 "기획"이나 "PM"이 들어간 공고는
@@ -475,7 +480,7 @@ python jobfind.py write
 [조건]   서울 강남구 | 정규직 | 경력 2~5년
 [직무]   Python, Django, REST API
 [링크]   https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=12345
-[마감]   2026-08-31
+[마감]   2026-08-31 (D-17)
 [ID]     saramin_12345
 ════════════════════════════════════════════════
 ```

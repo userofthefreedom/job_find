@@ -1,6 +1,6 @@
 # SPEC — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 5: run_log.txt §5-3 추가) | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-15 (Phase 6: career_type 다중선택·회사 블랙리스트·D-day §3/§5-1 추가) | 기반 문서: PRD.md_
 
 ---
 
@@ -219,7 +219,7 @@ FILTER_LOCATIONS=서울, 판교
 # 비워두면 전체 허용
 
 FILTER_CAREER_TYPE=
-# 신입 | 경력 | 신입·경력 | 비워두면 전체 허용
+# 신입 | 경력 | 신입·경력, 쉼표로 여러 개 선택 가능(예: "신입, 경력무관", Phase 6) | 비워두면 전체 허용
 
 FILTER_EXP_MIN=1   # 최소 경력 연수 (비워두면 하한 없음)
 FILTER_EXP_MAX=5   # 최대 경력 연수 (비워두면 상한 없음)
@@ -227,6 +227,9 @@ FILTER_EXP_MAX=5   # 최대 경력 연수 (비워두면 상한 없음)
 FILTER_EXCLUDE_KEYWORDS=교육생, 무료교육, 설명회, 상시채용
 # keywords 가 title 이 아닌 keyword(직무 태그)에만 매칭된 경우에 한해 검사.
 # title 또는 job_type 에 이 목록의 단어가 포함되면 탈락 (채용 공고가 아닌 것으로 간주)
+
+FILTER_EXCLUDE_COMPANIES=
+# 회사명에 하나라도 부분 포함되면 탈락 (Phase 6). 비워두면 전체 허용
 ```
 
 ### 3-1a. `.env` 로드 (`load_config()`)
@@ -234,11 +237,14 @@ FILTER_EXCLUDE_KEYWORDS=교육생, 무료교육, 설명회, 상시채용
 ```python
 def load_config() -> SimpleNamespace:
     """os.environ(.env, python-dotenv로 로드)에서 KEYWORDS/LOCATIONS/CAREER_TYPE/
-    EXP_MIN/EXP_MAX/EXCLUDE_KEYWORDS 등을 읽어 SimpleNamespace 로 변환한다."""
+    EXP_MIN/EXP_MAX/EXCLUDE_KEYWORDS/EXCLUDE_COMPANIES 등을 읽어 SimpleNamespace 로
+    변환한다."""
 ```
 
 - 쉼표(`,`)로 구분된 값은 리스트로 분리 (`_parse_list`), 앞뒤 공백 제거, 빈 항목 무시
-- 빈 문자열은 `None`으로 취급 (`_parse_optional_int`, `career_type`) → 전체 허용
+- `CAREER_TYPE`도 다른 목록형 설정과 동일하게 `_parse_list`로 처리해 **항상 리스트**를
+  반환한다(Phase 6부터 — 이전엔 단일 문자열/`None`이었음). 빈 리스트는 전체 허용을 뜻한다.
+- 빈 문자열은 `None`으로 취급 (`_parse_optional_int`) → 전체 허용
 - 환경변수가 아예 없어도 빈 값으로 간주 (전체 허용, 오류 아님)
 - `jobfind/config.py` 모듈 로드 시점에 1회 `config = load_config()`로 전역 로드
 
@@ -268,12 +274,14 @@ def load_config() -> SimpleNamespace:
     단위 정보가 있으므로 "경기" 전역(수원·인천 등 포함)이 함께 통과되는 트레이드오프가 있다.
 
 경력 유형 필터:
-  CAREER_TYPE 이 None → 통과
-  아니면 → CAREER_TYPE 에 대응하는 동등 표현 목록 중 하나라도 experience 필드에 포함되면 통과
+  CAREER_TYPE 이 빈 리스트 → 통과
+  아니면 → CAREER_TYPE 의 각 값에 대응하는 동등 표현 목록을 전부 모아, 그중 하나라도
+    experience 필드에 포함되면 통과(여러 값을 OR로 결합, Phase 6부터 다중 선택 지원)
     "신입"        → ["신입", "경력무관"]
     "경력"        → ["경력", "경력무관"]
     "신입·경력"   → ["신입", "경력", "경력무관"]
     (목록에 없는 값은 문자열 그대로 포함 여부만 검사)
+    예: CAREER_TYPE=["신입", "경력무관"] → "신입" 또는 "경력무관"을 포함하는 experience만 통과
 
   ※ "신입·경력"(신입/경력 무관하게 지원 가능)은 실제로는 "신입", "경력", "경력무관",
     "경력 3~8년"처럼 구체적 연차만 표기된 공고도 의미상 전부 포함하므로, 이런 표현도
@@ -281,8 +289,15 @@ def load_config() -> SimpleNamespace:
 
 경력 연차 필터:
   EXP_MIN, EXP_MAX 모두 None → 통과
-  아니면 → experience 필드에서 숫자 추출 후 범위 비교
+  아니면 → experience 필드에서 숫자 추출 후 범위 비교 (overlap 방식 — 공고 요구 범위와
+    설정 범위가 조금이라도 겹치면 통과. containment 방식(공고 요구 범위가 설정 범위 안에
+    완전히 포함되어야 통과)으로 바꾸는 안을 Phase 6에서 검토했으나, 시니어 공고까지
+    넓게 보고 싶다는 사용자 판단으로 현재 방식을 그대로 유지하기로 확정함 — 2026-08-15)
   추출 불가(예: "경력무관") → 통과 (관대하게 처리)
+
+회사 블랙리스트 (Phase 6):
+  EXCLUDE_COMPANIES 가 비어 있으면 → 통과
+  아니면 → company 필드에 EXCLUDE_COMPANIES 중 하나라도 부분 포함되면 탈락
 ```
 
 모든 필터를 AND 조건으로 통과해야 최종 저장된다.
@@ -445,7 +460,7 @@ sync_materials_folders(jobs_path):
 [조건]   서울 강남구 | 정규직 | 경력 1~3년
 [직무]   Python, Django, REST API
 [링크]   https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=73261234
-[마감]   2024-12-31
+[마감]   2024-12-31 (D-21)
 [ID]     saramin_73261234
 ════════════════════════════════════════════════
 ```
@@ -457,7 +472,9 @@ sync_materials_folders(jobs_path):
 - `[출처]` 줄: `"사람인"` 또는 `"원티드"` — 항상 출력
 - `[조건]` 줄: `location | job_type | experience` 순, 항목이 빈 문자열이면 해당 항목 생략
 - `[직무]` 줄: `keyword` 필드가 비어 있으면 줄 전체 생략
-- `[마감]` 줄: deadline 변환 실패 시 줄 전체 생략
+- `[마감]` 줄: deadline 변환 실패 시 줄 전체 생략. 값 파싱에 성공하면 `_format_deadline()`이
+  `"YYYY-MM-DD (D-N)"` 형태로 D-day를 붙인다(Phase 6) — 이미 지난 날짜면 `"(마감)"`,
+  `YYYY-MM-DD` 형식이 아니면(예: 알 수 없는 형식) 원본 문자열을 그대로 둔다
 - `[검수]` 줄: `jobfind.py verify` 실행 후에만 `[ID]` 줄 바로 앞에 추가됨 (§10 참고).
   `"[검수] <PASS|CONCERN|UNKNOWN>: <근거>"` 형식의 항상 한 줄짜리 필드
 - 구분선: `═` 48개
@@ -604,6 +621,7 @@ FILTER_CAREER_TYPE=
 FILTER_EXP_MIN=
 FILTER_EXP_MAX=
 FILTER_EXCLUDE_KEYWORDS=교육생, 무료교육, 설명회, 상시채용
+FILTER_EXCLUDE_COMPANIES=
 
 RELEVANCE_ROLES=
 RELEVANCE_DOMAINS=

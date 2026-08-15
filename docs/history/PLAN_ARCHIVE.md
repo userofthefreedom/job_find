@@ -209,41 +209,72 @@ python fetch_jobs.py
 
 ---
 
-## Phase 6 — 필터/매칭 고도화 (v3, 예정)
+## Phase 6 — 필터/매칭 고도화 ✅ (2026-08-15 완료)
 
 **목표**: 실 데이터 검증(2026-07-10)에서 확인된 필터 정밀도 문제를 추가로 개선
 
-### 작업 목록 (예정)
+### 착수 전 확인 — exp_range containment 검토
 
-- [ ] `filter_exp_range()` — overlap(겹치면 통과) → containment(공고 요구 범위가 내 범위 안에 완전히 포함되어야 통과) 방식 재검토.
-      v2 마무리 시점에 "일단 이 상태로 두자"고 보류한 안건 — 착수 전 실제 원하는 동작(지원 가능한 시니어 공고까지 넓게 볼지, 내 연차대만 좁게 볼지)을 사용자에게 재확인
-- [ ] `career_type` 다중 선택 지원 — `config.ini`에서 쉼표로 여러 값(예: `신입, 경력무관`) 지정 가능하도록 `load_config()`/`filter_career_type()` 확장. 기존 `_CAREER_EQUIVALENTS` 동등어 테이블과의 결합 방식 설계 필요
-- [ ] 회사 블랙리스트 — `config.ini`에 `exclude_companies` 옵션 추가, `filter_jobs()`에 필터 함수 추가
-- [ ] 마감임박 표시 — `format_block()`의 `[마감]` 줄에 D-day 표시(예: `2026-07-15 (D-3)`) 추가
+`filter_exp_range()`를 overlap(겹치면 통과)에서 containment(공고 요구 범위가 내 설정
+범위 안에 완전히 포함돼야 통과)로 바꾸는 안은, 착수 전 사용자에게 직접 물어봤다
+(2026-08-15). **"지금처럼 유지(overlap)"로 확정** — 시니어 공고까지 넓게 보고 싶다는
+판단. 따라서 이 항목은 구현하지 않고 현재 로직을 그대로 둔다.
 
-### 완료 기준 (예정)
+### 구현 내용
 
-- 필터 변경 시 이번 v2 검증 때 썼던 방식대로 `fetch_saramin_all()`/`fetch_wanted_all()`로 실 데이터를 가져와 필터 전후 결과를 수동 대조해 정밀도/재현율 재확인
-- `python -m pytest tests/ -v` 회귀 테스트 통과
+- **`career_type` 다중 선택**: `jobfind/config.py`의 `CAREER_TYPE`을 단일
+  `str | None`에서 `_parse_list()`로 파싱하는 `list[str]`로 변경(빈 리스트 = 전체허용).
+  `filters.py`의 `filter_career_type()`이 여러 값 각각의 `_CAREER_EQUIVALENTS`를 모아
+  OR로 결합하도록 확장.
+- **회사 블랙리스트**: `.env`에 `FILTER_EXCLUDE_COMPANIES` 추가, `filters.py`에
+  `filter_company_blacklist()` 신설 — `company` 필드에 블랙리스트 항목이 부분 포함되면
+  탈락. `filter_jobs()`의 AND 체인에 추가.
+- **마감임박 D-day 표시**: `jobfind/storage.py`에 `_format_deadline()` 추가 —
+  `date.fromisoformat()`으로 파싱해 `"YYYY-MM-DD (D-N)"` 형태로 포맷, 이미 지난 날짜는
+  `"(마감)"`, 파싱 실패 시 원본 문자열 그대로 반환. `format_block()`이 이 함수를 거쳐
+  `[마감]` 줄을 쓰도록 수정.
+
+### 실데이터 검증
+
+`career_type`/`blacklist`는 사용자의 실제 `.env`가 둘 다 비워둔 상태(기본값 = 전체허용)라
+필터링 결과 자체는 바뀌지 않음을 확인하고, 실제 `jobfind.py collect`를 재실행해 신규 저장된
+블록에 D-day가 올바르게 붙는 것을 확인했다(`2026-09-12 (D-28)`, `2026-08-30 (D-15)` 등).
+
+### 검증
+
+- 202개 테스트 전부 통과(Phase 6 관련 10개 신규 — 다중선택 career_type, 블랙리스트,
+  D-day 포맷 4종 포함. `CAREER_TYPE` 타입 변경으로 기존 테스트 다수 수정).
+- 실제 `collect` 실행으로 D-day 표시 확인(위 참고).
 
 ---
 
-## Phase 7 — 공고 관리: 지원 상태 추적 (v3, 예정)
+## Phase 7 — 공고 관리: 지원 상태 추적 (예정, 설계는 확정됨)
 
 **목표**: 기존 `[X]`(제거) 마커는 유지하고, 지원 상태(지원함/면접/합격/탈락)를 기록할 수 있게 확장
 
-### 설계가 필요한 미결 사항 (착수 전 확정 필요)
+### 설계 결정 (2026-08-15, 사용자 확정)
 
-- 마커 문법 — 기존 `[ ]` 자리에 상태 텍스트를 직접 적게 할지(`[지원함]`), `[X]`와 별개로 새 줄(`[상태]`)을 추가할지. 후자가 X 마커 로직과 안 겹쳐서 더 안전
-- "탈락" 상태 처리 — `[X]`처럼 파일에서 제거하고 별도 기록(`archived_ids.txt`?)으로 옮길지, 파일에 남겨두고 상태만 표시할지
-- "지원함/면접/합격"은 `jobs_all.txt`에 계속 남아 있어야 확인 가능 — `process_x_markers()`처럼 매 실행마다 스캔하되 제거는 하지 않고 상태만 읽어 콘솔 요약에 반영(예: "지원함 3건, 면접 1건")하는 정도가 적절해 보임
-- 상태 변경 이력(언제 바뀌었는지)까지 추적할지는 범위 밖 — 단순 텍스트 파일 기반 "스크립트 수준 프로젝트" 원칙과 충돌
+착수 전 미결이던 두 질문을 사용자에게 직접 물어 확정했다:
 
-### 작업 목록 (착수 시 위 미결 사항 확정 후 구체화)
+- **마커 문법**: 새 줄 `[상태]`를 별도로 추가(기존 `[ ]`/`[X]`/`[자소서]`는 그대로 유지) —
+  기존 마커 로직과 겹치지 않아 더 안전하다는 판단.
+- **"탈락" 처리**: `[X]`처럼 `jobs_all.txt`에서 제거하고 별도 기록 파일(예:
+  `archived_ids.txt`)로 옮긴다 — 목록이 깔끔하게 유지된다는 판단.
 
-- [ ] 상태 마커 파싱 함수 추가 (`parse_blocks()` 재사용)
-- [ ] `format_block()` 출력에 상태 마커 반영
-- [ ] `docs/SPEC.md` §4-5(X 마커 처리 명세)를 상태 마커까지 포괄하도록 확장
+### 아직 남은 세부 설계
+
+- "지원함/면접/합격"은 `jobs_all.txt`에 계속 남아 있어야 확인 가능 —
+  `process_x_markers()`처럼 매 실행마다 스캔하되 제거는 하지 않고 상태만 읽어 콘솔 요약에
+  반영(예: "지원함 3건, 면접 1건")하는 정도가 적절해 보임
+- 상태 변경 이력(언제 바뀌었는지)까지 추적할지는 범위 밖 — 단순 텍스트 파일 기반 원칙과 충돌
+- `[상태]` 값의 정확한 어휘(지원함/서류합격/면접/최종합격/탈락 등 세분화 여부)는 착수 시 확정
+
+### 작업 목록 (착수 시 위 세부 설계 확정 후 구체화)
+
+- [ ] 상태 마커 파싱 함수 추가 (`parse_blocks()` 재사용) — `[상태]` 줄 읽기/쓰기
+- [ ] "탈락" 처리 — `process_x_markers()`와 유사한 흐름으로 제거 + `archived_ids.txt` 기록
+- [ ] `format_block()` 출력에 `[상태]` 마커 반영
+- [ ] `docs/SPEC.md` §4-5(마커 처리 명세)를 상태 마커까지 포괄하도록 확장
 
 ---
 
@@ -641,7 +672,7 @@ CONCERN으로 잡혔다. 결과: PASS 2 · CONCERN 7 · UNKNOWN 2(대부분 사�
 | 3 | `fetch_jobs.py` (필터 함수 추가) |
 | 4 | `fetch_jobs.py` (X 마커 처리 추가) |
 | 5 | `jobfind/collectors/{saramin,wanted}.py`(request_failed/page_cap_hit 반환), `jobfind/dedup.py`(신호 전달), `jobfind/storage.py`(append_run_log), `jobfind/cli.py`(경고 조립 + run_log 기록) — 2026-08-15 완료 |
-| 6 (미착수) | `fetch_jobs.py`, `config.ini`, `docs/SPEC.md` (필터 로직 확장) — Phase 8~13에 우선순위 밀림 |
+| 6 | `jobfind/config.py`(CAREER_TYPE 리스트화, EXCLUDE_COMPANIES 추가), `jobfind/filters.py`(다중선택 + 블랙리스트), `jobfind/storage.py`(_format_deadline) — 2026-08-15 완료 |
 | 7 (미착수) | `fetch_jobs.py`, `docs/SPEC.md` (상태 마커 추가) — Phase 8~13에 우선순위 밀림 |
 | 8 | `jobfind/` 패키지 전체(신설), `fetch_jobs.py`/`tests/test_fetch_jobs.py` 삭제 |
 | 9 | `jobfind/relevance.py`, `config.ini` |
@@ -679,3 +710,4 @@ CONCERN으로 잡혔다. 결과: PASS 2 · CONCERN 7 · UNKNOWN 2(대부분 사�
 | 2026-08-15 | Phase 0(로컬 환경 세팅) 완료 — venv/의존성 설치, `.env`를 `profile.md` 기반으로 구성, `profile.md`를 `이력서_job.pdf`+`자소서_원본.md` 분석으로 작성 |
 | 2026-08-15 | Phase 16 추가 — 공고 최종검수(`verify`) 신설: 목록 요약과 실제 상세 요건(사람인은 `view-detail` 엔드포인트로 확보한 이미지, 원티드는 상세 API 텍스트)을 AI로 대조해 PASS/CONCERN/UNKNOWN 판정을 남김. 실사용 검증 중 사람인이 본문을 이미지로 올린다는 사실과, 인증 없는 정적 엔드포인트로 그 이미지 URL을 얻을 수 있다는 점을 발견(헤드리스 브라우저 불필요). 판정 파싱 강건화(마크다운 볼드 제거, 자기 정정 시 마지막 판정 채택) 포함. 세부 내용은 위 Phase 16 섹션 참고 |
 | 2026-08-15 | Phase 5 완료 — 2026-07-10에 세운 로드맵 초안을 지금 구조(`jobfind/` 패키지)에 맞게 구현: 소스 요청 자체 실패와 정상적인 0건(오늘 신규 공고 없음)을 구분하는 신호를 `fetch_saramin_all`/`fetch_wanted_all`에 추가하고, 사람인 페이지 상한 도달 감지를 붙여 `collect` 실행 시 콘솔+`output/run_log.txt`에 `[경고]`로 남긴다. 구현 중 `fetch_wanted_all`의 "빈 응답"과 "요청 실패" 구분 버그를 테스트로 발견해 수정. 세부 내용은 위 Phase 5 섹션 참고 |
+| 2026-08-15 | Phase 6 완료 — 남은 로드맵 초안 항목 구현: `career_type` 다중 선택, 회사 블랙리스트(`FILTER_EXCLUDE_COMPANIES`), 마감임박 D-day 표시. exp_range containment 전환은 착수 전 사용자 확인 결과 "overlap 유지"로 확정해 구현하지 않음. 같은 세션에서 Phase 7(지원 상태 추적)의 미결 설계 질문(마커 문법·탈락 처리)도 사용자에게 확인해 확정(구현은 아직) — 새 줄 `[상태]` 추가 + 탈락은 `[X]`처럼 제거+별도 기록. 세부 내용은 위 Phase 6/7 섹션 참고 |
