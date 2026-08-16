@@ -4,11 +4,11 @@ _요약본 — Phase 1 최초 실행 로그 원문은 `docs/history/TEST_RESULT.
 
 ## 최신 확인된 테스트 규모
 
-Phase 20(2026-08-16) 완료 시점 기준 **228개 테스트 전부 통과** (`python -m pytest tests/ -v`,
+Phase 21(2026-08-16) 완료 시점 기준 **236개 테스트 전부 통과** (`python -m pytest tests/ -v`,
 직접 재실행 확인. Phase 19에서 231개까지 늘었다가, Phase 20에서 `codex_cli` provider 지원을
-폐기하며 관련 테스트 3개를 제거해 228개가 됐다). 세부 실행 로그는 세션 기록에만 남아 있고
-별도 정리되지 않았다 — Phase별 테스트 개수 추이는 `docs/history/PROGRESS.md`에서 확인
-가능하다.
+폐기하며 관련 테스트 3개를 제거해 228개, Phase 21에서 작성 전략 테스트 8개를 추가해 236개가
+됐다). 세부 실행 로그는 세션 기록에만 남아 있고 별도 정리되지 않았다 — Phase별 테스트 개수
+추이는 `docs/history/PROGRESS.md`에서 확인 가능하다.
 
 ## 실행 방법
 

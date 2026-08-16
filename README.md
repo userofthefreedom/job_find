@@ -414,6 +414,13 @@ python jobfind.py write
 내용을 넣기 위함입니다. 검색이 실패하거나 도구를 못 쓰는 provider(`api:*`)여도 계획 수립
 자체는 가진 정보로 계속 진행됩니다.
 
+계획·작성·평가 전 단계는 공통 "작성 전략"을 공유합니다 — 두괄식 구조, STAR(상황-과제-행동-
+결과) 서술, "다른 회사 이름으로 바꿔도 말이 되면 실패"인 지원동기, 클리셰("열정", "책임감이
+강하다", "최선을 다하겠습니다" 등) 회피, 약점/입사 후 포부를 구체적으로 구조화하는 방법
+등입니다(공개적으로 발행된 자소서 작성법 콘텐츠를 리서치해 정리한 것이며, 특정 개인의
+합격 자소서 원문을 수집한 것은 아닙니다). 평가 단계는 이 기준 위반을 실제로
+`NEEDS_REVISION` 판정 근거로 씁니다.
+
 ```
 [2026-08-14 12:10] 자소서 작성 시작 | 대상: 2건
 - saramin_54736780 작성 중...
@@ -630,6 +637,7 @@ python -m pytest tests/ -v
 | 관련성 평가 | sentence-transformers + snunlp/KR-SBERT-V40K-klueNLI-augSTS (로컬, 비용 없음) |
 | AI provider | claude_cli / api:anthropic / api:openai (역할별로 다르게 설정 가능, `codex_cli`는 Phase 20에서 지원 폐기) |
 | 기업 정보 조회 | DART 오픈API(선택, 대부분 상장기업+일부 비상장 공시대상법인) + 계획 단계 웹 검색(`claude_cli`만) |
+| 자소서 작성 전략 | 두괄식/STAR/지원동기 구체성 등 공개 작성법 리서치 기반 지식(`jobfind/pipeline/writing_strategy.py`), 계획·작성·평가 프롬프트가 공유 |
 | 공고 최종검수 | 원티드는 상세 API 텍스트, 사람인은 `view-detail` 엔드포인트로 얻은 본문 이미지를 AI(비전)로 대조 (`verify`) |
 | 환경 변수 | python-dotenv |
 | 런타임 | Windows 로컬, 사용자가 터미널에서 직접 실행 |

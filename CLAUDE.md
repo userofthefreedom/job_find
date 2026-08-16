@@ -17,6 +17,11 @@
 - **관련성 평가는 비용 없는 로컬 HuggingFace 임베딩 모델**로 처리한다 (LLM 호출 아님).
 - 사람인·원티드 두 플랫폼에서 공고 수집, 결과를 단일 파일(`output/jobs_all.txt`)에 통합해
   누적 기록한다.
+- **자소서 작성 전략 지식 보유**: 계획·작성·평가 프롬프트가 두괄식·STAR·지원동기 구체성·
+  클리셰 회피 등 공유 작성 전략(`jobfind/pipeline/writing_strategy.py`, Phase 21)을 참고해
+  단순 "잘 써라" 지시보다 구체적인 기준으로 품질을 끌어올린다. 이 지식은 공개 발행된 작성법
+  콘텐츠와 사용자 본인 소유 자료에서만 얻으며, 제3자 개인의 합격 자소서 원문은 수집하지
+  않는다(정책적 이유, 아래 Security Rules 인접 원칙과 동일 판단 기준).
 
 ## Tech Stack
 
@@ -69,7 +74,8 @@
 │   ├── selection.py               # [자소서] 마커 스캔, materials/ 폴더 준비
 │   ├── storage.py                # jobs_all.txt/dismissed_ids.txt 읽기·쓰기, 블록 파싱, 마커 처리
 │   ├── providers/                # AI provider 추상화 (claude_cli/api)
-│   └── pipeline/                 # 자소서 오케스트레이션 (prompts.py, orchestrator.py)
+│   └── pipeline/                 # 자소서 오케스트레이션 (prompts.py, orchestrator.py,
+│                                  #   writing_strategy.py)
 ├── profile.md                    # 사용자 이력/자기소개 자유 텍스트 (.gitignore 대상)
 ├── profile.md.example            # profile.md 템플릿 (Git 포함)
 ├── requirements.txt
@@ -197,14 +203,19 @@ PROVIDER_PLANNER=claude_cli
 
 **2026-08-16 기준 계획된 Phase가 전부 완료됐다** — v1(Phase 1~4) + v3 재설계(Phase 8~13) +
 실사용 피드백(Phase 14~18) + 2026-07-10 로드맵 초안이던 Phase 5~7 + 복수 직무 묶음 공고 감지
-(Phase 19) + provider 정리·DART 실키 검증(Phase 20)까지 전부 구현·검증됐다. 더 이상 미착수
-Phase가 없다 — 각 Phase의 상세 구현 내용·검증 로그는 `docs/PLAN.md`(요약)와
-`docs/history/PLAN_ARCHIVE.md`(전문)를 참고한다.
+(Phase 19) + provider 정리·DART 실키 검증(Phase 20) + 자소서 작성 전략 지식(Phase 21)까지
+전부 구현·검증됐다. 더 이상 미착수 Phase가 없다 — 각 Phase의 상세 구현 내용·검증 로그는
+`docs/PLAN.md`(요약)와 `docs/history/PLAN_ARCHIVE.md`(전문)를 참고한다.
 
 Phase 20에서 (1) 끝내 실사용 검증이 안 되던 `codex_cli` provider를 폐기해 `claude_cli`/
 `api:*` 두 경로로만 운영하도록 정리했고(OQ4 해소), (2) 실제 `DART_API_KEY`로 DART 연동을
 전 구간 검증해 정상 동작을 확인했다(OQ6 해소, 부수 발견: DART가 상장기업뿐 아니라 일부
-비상장 공시대상법인도 커버함).
+비상장 공시대상법인도 커버함). Phase 21에서는 그동안 없었던 "자소서 작성 전략" 기준을
+계획·작성·평가 프롬프트에 반영했다 — 공개 발행된 작성법 콘텐츠 리서치와 사용자 본인 소유
+과거 지원 자료(대부분 서류 탈락) 분석에서 도출했으며, 제3자 개인의 합격 자소서 원문은
+수집하지 않았다(자소설닷컴/잡코리아 등 — 열람 가능 여부와 무관하게 원저작자 저작권·
+약관·개인정보 문제가 남아 비상업적 목적이라는 사정으로 정당화되지 않는다고 판단, Phase 15
+자소설닷컴 연동 보류 결정과 동일한 기준).
 
 새 개선 아이디어가 생기면 `docs/PLAN.md`에 새 Phase로 추가해 이어간다. 강제 작업은 아니지만
 재검토 여지가 있는 항목은 `docs/PRD.md` "미결 사항(OQ1~OQ8)"에 정리돼 있다 — 남은 건

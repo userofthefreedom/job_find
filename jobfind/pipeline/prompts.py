@@ -1,6 +1,11 @@
 from __future__ import annotations
 from pathlib import Path
 
+from jobfind.pipeline.writing_strategy import (
+    WRITING_STRATEGY,
+    WRITING_STRATEGY_EVALUATION_NOTE,
+)
+
 # 계획/작성/평가 프롬프트가 공통으로 지켜야 할 자소서 스타일 원칙. 각 단계가 독립된 AI
 # 호출이라 이 원칙을 시스템 프롬프트마다 공유하지 않으면 라운드마다 다른 지침을 냈다
 # (예: 계획 평가자는 "약점을 정면으로 언급하라", 초안 평가자는 "반복하지 마라"고 서로 다른
@@ -11,7 +16,9 @@ COVER_LETTER_STYLE_PRINCIPLES = (
     "전환한다. 여러 섹션에서 반복해서 고백하지 않는다.\n"
     "- 지원자 본인의 경험이 아닌 회사 관련 사실(수치·리뷰 인용 등)은, 1차 출처를 직접 확인하지 "
     "못했다면 따옴표로 감싼 직접인용을 쓰지 말고 완화된 어조(\"~로 알려져 있다\")로만 표현한다. "
-    "직접인용부호는 실제로 원문을 확인한 경우에만 쓴다."
+    "직접인용부호는 실제로 원문을 확인한 경우에만 쓴다. 특히 비상장 기업의 매출 성장률처럼 "
+    "소수점 단위로 정밀하지만 실제로 공개돼 있을 가능성이 낮은 수치는, 헤지 어조를 붙이는 "
+    "것만으로는 부족하다 — 아예 쓰지 않고 공고 원문에 명시된 사실만으로 논거를 구성한다."
 )
 
 # materials/notes.md는 사용자가 직접 채워넣는 유일한 채널이라, 여기 실제 자소서 문항이
@@ -39,7 +46,7 @@ def planner_prompt(job_text: str, profile: str, materials_dir: Path) -> tuple[st
         "사용자 제공 정보에 실제 자소서 문항(문항 제목·글자수 제한 포함)이 있으면 반드시 그 "
         "문항 순서와 표현을 그대로 따라 계획을 세우고, 그런 정보가 없을 때만 표준 4문항 구성 "
         "(지원동기·직무 경험·강점·입사 후 포부)으로 가정하라.\n\n"
-        f"{COVER_LETTER_STYLE_PRINCIPLES}"
+        f"{COVER_LETTER_STYLE_PRINCIPLES}\n\n{WRITING_STRATEGY}"
     )
     user = f"[공고 정보]\n{job_text}\n\n[지원자 프로필]\n{profile}\n\n"
     notes = _read_notes(materials_dir)
@@ -60,7 +67,7 @@ def planner_revision_prompt(
         "멈추지 말고 가진 정보로 최선을 다해 계획을 다시 작성하라. 사용자 제공 정보에 실제 "
         "자소서 문항(문항 제목·글자수 제한 포함)이 있으면 반드시 그 문항 순서와 표현을 그대로 "
         "따라 계획을 세우고, 그런 정보가 없을 때만 표준 4문항 구성으로 가정하라.\n\n"
-        f"{COVER_LETTER_STYLE_PRINCIPLES}"
+        f"{COVER_LETTER_STYLE_PRINCIPLES}\n\n{WRITING_STRATEGY}"
     )
     user = f"[공고 정보]\n{job_text}\n\n[지원자 프로필]\n{profile}\n\n"
     notes = _read_notes(materials_dir)
@@ -80,7 +87,7 @@ def plan_evaluator_prompt(job_text: str, plan: str) -> tuple[str, str]:
         "판단한다. 계획이 공고 요구사항과 잘 맞는지, 진부하거나 추상적이지 않은지 확인하라. "
         "첫 줄에 정확히 'OK' 또는 'NEEDS_REVISION' 중 하나만 쓰고, 그 아래에 구체적인 "
         "수정 제안을 적어라.\n\n"
-        f"{COVER_LETTER_STYLE_PRINCIPLES}"
+        f"{COVER_LETTER_STYLE_PRINCIPLES}\n\n{WRITING_STRATEGY}\n\n{WRITING_STRATEGY_EVALUATION_NOTE}"
     )
     user = f"[공고 정보]\n{job_text}\n\n[작성 계획]\n{plan}\n\n이 계획을 평가하라."
     return system, user
@@ -97,7 +104,7 @@ def writer_prompt(job_text: str, profile: str, plan: str) -> tuple[str, str]:
         "직무 경험·강점·입사 후 포부)으로 가정해 반드시 실제 자소서 본문을 끝까지 작성하라. "
         "어떤 부분이 가정이고 원문 확인 시 무엇을 다시 물어야 하는지는 draft 본문과 분리해 "
         "안내 문구로만 짧게 남겨라.\n\n"
-        f"{COVER_LETTER_STYLE_PRINCIPLES}"
+        f"{COVER_LETTER_STYLE_PRINCIPLES}\n\n{WRITING_STRATEGY}"
     )
     user = (
         f"[공고 정보]\n{job_text}\n\n"
@@ -116,7 +123,7 @@ def writer_revision_prompt(
         "피드백을 반영해 초안을 개선한다. 지원자의 실제 경험만 사용하고 과장하거나 없는 "
         "경험을 지어내지 않는다. 초안 작성 자체를 거부하지 말고 반드시 개선된 자소서 본문을 "
         "끝까지 다시 작성하라.\n\n"
-        f"{COVER_LETTER_STYLE_PRINCIPLES}"
+        f"{COVER_LETTER_STYLE_PRINCIPLES}\n\n{WRITING_STRATEGY}"
     )
     user = (
         f"[공고 정보]\n{job_text}\n\n"
@@ -157,7 +164,7 @@ def draft_evaluator_prompt(job_text: str, draft: str) -> tuple[str, str]:
         "진부한 표현, 공고와의 연관성 부족, 논리적 비약을 짚어내고 구체적인 수정 방안을 "
         "제시하라. 첫 줄에 정확히 'OK' 또는 'NEEDS_REVISION' 중 하나만 쓰고, 그 아래에 "
         "구체적인 수정 제안을 적어라.\n\n"
-        f"{COVER_LETTER_STYLE_PRINCIPLES}"
+        f"{COVER_LETTER_STYLE_PRINCIPLES}\n\n{WRITING_STRATEGY}\n\n{WRITING_STRATEGY_EVALUATION_NOTE}"
     )
     user = f"[공고 정보]\n{job_text}\n\n[자소서 초안]\n{draft}\n\n이 초안을 평가하라."
     return system, user
