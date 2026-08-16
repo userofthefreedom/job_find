@@ -15,6 +15,7 @@ from jobfind.storage import (
     append_run_log,
     ensure_output_dir,
     find_block,
+    is_bundled,
     load_active_ids,
     load_archived_ids,
     load_dismissed_ids,
@@ -130,6 +131,10 @@ def select() -> None:
     for job_id in selected_ids(JOBS_PATH):
         print(f"  - output/cover_letters/{job_id}/materials/notes.md — 실제 자소서 문항이 있다면 "
               "여기에 붙여넣어 두세요 (문항 제목·글자수 제한까지 포함하면 write 단계에서 그대로 반영됩니다)")
+        block = find_block(JOBS_PATH, job_id)
+        if block and is_bundled(block):
+            print(f"    [공채후보] 복수 직무를 묶어 모집하는 공고일 수 있습니다 — notes.md에 "
+                  "실제 지원하려는 세부 직무를 적어두면 write 단계에서 반영됩니다 (미기재 시 표준 구성으로 작성됨)")
 
 
 def write() -> None:

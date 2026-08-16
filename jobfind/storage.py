@@ -2,7 +2,13 @@ from __future__ import annotations
 import os
 from datetime import date, datetime
 
+from jobfind.bundle_detection import is_bundled_posting
+
 DIVIDER = "═" * 48
+BUNDLE_NOTICE = (
+    "복수 직무 묶음 공고일 수 있음 — [자소서]로 선택 시 materials/notes.md에 "
+    "실제 지원 직무를 명시하세요"
+)
 
 
 def _format_deadline(deadline: str) -> str:
@@ -42,6 +48,8 @@ def format_block(job: dict) -> str:
         lines.append(f"[조건]   {cond}")
     if job["keyword"]:
         lines.append(f"[직무]   {job['keyword']}")
+    if is_bundled_posting(job):
+        lines.append(f"[공채후보] {BUNDLE_NOTICE}")
     lines.append(f"[링크]   {job['url']}")
     if job["deadline"]:
         lines.append(f"[마감]   {_format_deadline(job['deadline'])}")
@@ -100,6 +108,10 @@ def is_dismissed(block: str) -> bool:
 
 def is_selected(block: str) -> bool:
     return any(ln.strip() == "[자소서]" for ln in block.splitlines())
+
+
+def is_bundled(block: str) -> bool:
+    return any(ln.startswith("[공채후보]") for ln in block.splitlines())
 
 
 def extract_id(block: str) -> str | None:

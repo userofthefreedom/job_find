@@ -4,9 +4,9 @@ _요약본 — Phase 1 최초 실행 로그 원문은 `docs/history/TEST_RESULT.
 
 ## 최신 확인된 테스트 규모
 
-Phase 15(2026-08-14) 완료 시점 기준 **161개 테스트 전부 통과** (`python -m pytest tests/ -v`).
-세부 실행 로그는 세션 기록에만 남아 있고 별도 정리되지 않았다 — Phase별 테스트 개수 추이는
-`docs/history/PROGRESS.md`에서 확인 가능하다.
+Phase 19(2026-08-16) 완료 시점 기준 **231개 테스트 전부 통과** (`python -m pytest tests/ -v`,
+직접 재실행 확인). 세부 실행 로그는 세션 기록에만 남아 있고 별도 정리되지 않았다 — Phase별
+테스트 개수 추이는 `docs/history/PROGRESS.md`에서 확인 가능하다.
 
 ## 실행 방법
 

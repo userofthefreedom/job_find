@@ -63,6 +63,7 @@
 │   ├── filters.py                # .env 기반 1차 필터 (키워드/지역/경력유형/연차)
 │   ├── relevance.py              # HF 임베딩 기반 2차 필터 — 직무x도메인 랭킹, 상위 top_n만 유지
 │   ├── verification.py           # 상세 요건 최종검수 — AI로 목록 요약 vs 실제 요건 대조
+│   ├── bundle_detection.py       # 복수 직무 묶음(공채) 후보 감지 — 제목 패턴 기반
 │   ├── dart.py                   # DART 기업개황 조회 (상장기업만, API 키 있을 때만)
 │   ├── selection.py               # [자소서] 마커 스캔, materials/ 폴더 준비
 │   ├── storage.py                # jobs_all.txt/dismissed_ids.txt 읽기·쓰기, 블록 파싱, 마커 처리
@@ -193,23 +194,14 @@ PROVIDER_PLANNER=claude_cli
 
 ## 다음 단계
 
-v1(Phase 1~4, 사람인+원티드 수집)·v2(config.ini 전환 및 실데이터 검증 기반 필터 수정)·
-v3 재설계(Phase 8~13: 패키지 재구조화, HF 임베딩 관련성 랭킹, 수동 추가/자소서 선택 마커,
-AI provider 추상화, 자소서 오케스트레이션 파이프라인, 문서 정리) 모두 완료됐다.
+**2026-08-16 기준 계획된 Phase가 전부 완료됐다** — v1(Phase 1~4) + v3 재설계(Phase 8~13) +
+실사용 피드백(Phase 14~18) + 2026-07-10 로드맵 초안이던 Phase 5~7 + 복수 직무 묶음 공고 감지
+(Phase 19)까지 전부 구현·검증됐다. 더 이상 미착수 Phase가 없다 — 각 Phase의 상세 구현
+내용·검증 로그는 `docs/PLAN.md`(요약)와 `docs/history/PLAN_ARCHIVE.md`(전문)를 참고한다.
 
-기존 v3 로드맵 초안(Phase 5~7 — 실행 로그/이상 감지, 필터 고도화, 지원 상태 추적)은 구현에
-착수하지 못한 채 우선순위가 밀렸다. 아이디어 자체는 여전히 유효한 개선 후보다 — 작업 재개 시
-`docs/PLAN.md`의 "구현 전략" 인트로와 Phase 5~7 섹션을 먼저 확인한다.
-
-Phase 14(실사용 피드백 반영, `docs/PLAN.md` 참고)에서 `config.ini` → `.env` 통합, 관련성 랭킹
-결합식(합→곱) 수정, writer가 정보 부족해도 초안 작성을 거부하지 않도록 프롬프트 보강을
-완료했다. Phase 15에서 이어서 (1) 임베딩 모델을 `jhgan/ko-sroberta-multitask` →
-`snunlp/KR-SBERT-V40K-klueNLI-augSTS`로 교체(실측 비교로 도메인 판별력 개선 확인), (2) DART
-기업개황 자동 조회 추가, (3) planner에 WebSearch/WebFetch 허용을 완료했다. 자소설닷컴(실제
-자소서 문항 제공 사이트) 연동은 기술적으로(정적 스크래핑 불가, 이 환경에 브라우저 확장
-미연결) + 정책적으로(제3자 큐레이션 콘텐츠 스크래핑 소지) 보류했다 — 사용자가 직접 보고
-`materials/notes.md`에 복사해 넣는 기존 방식 유지. 재검토 시 `docs/PLAN.md` Phase 15를
-먼저 확인할 것.
+새 개선 아이디어가 생기면 `docs/PLAN.md`에 새 Phase로 추가해 이어간다. 강제 작업은 아니지만
+재검토 여지가 있는 항목은 `docs/PRD.md` "미결 사항(OQ1~OQ8)"에 정리돼 있다 — 특히 OQ4(codex_cli
+플래그 미검증), OQ6(DART 연동 실키 미검증), OQ8(verify 판정 비일관성)은 재개 시 먼저 확인.
 
 ## Scraping & API Constraints
 

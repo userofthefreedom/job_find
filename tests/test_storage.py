@@ -9,6 +9,7 @@ from jobfind.storage import (
     extract_id,
     find_block,
     format_block,
+    is_bundled,
     is_dismissed,
     is_selected,
     load_active_ids,
@@ -81,6 +82,27 @@ def test_format_block_includes_empty_check_marker():
     block = format_block(_JOB)
     lines = block.splitlines()
     assert lines[1] == "[ ]"  # 구분선 바로 다음 줄에 체크용 빈 마커
+
+
+# ── [공채후보] 감지 (Phase 19) ──────────────────────────────────────────────
+
+def test_format_block_flags_bundled_title():
+    job = {**_JOB, "title": "2026년 하반기 신입 공채 (전 부문)"}
+    block = format_block(job)
+    assert "[공채후보]" in block
+
+def test_format_block_omits_bundle_notice_for_single_role():
+    block = format_block(_JOB)
+    assert "[공채후보]" not in block
+
+def test_is_bundled_true():
+    block = _make_block("saramin_1").replace(
+        DIVIDER + "\n[수집일]", DIVIDER + "\n[공채후보] 테스트\n[수집일]"
+    )
+    assert is_bundled(block)
+
+def test_is_bundled_false():
+    assert not is_bundled(_make_block("saramin_1"))
 
 
 # ── load_active_ids ───────────────────────────────────────────────────────────
