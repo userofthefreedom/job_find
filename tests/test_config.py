@@ -73,12 +73,14 @@ def test_load_config_providers_defaults_to_claude_cli(monkeypatch):
     assert cfg.PROVIDER_DRAFT_EVALUATOR == "claude_cli"
 
 def test_load_config_providers_reads_env(monkeypatch):
-    monkeypatch.setenv("PROVIDER_PLANNER", "codex_cli")
+    # config.py는 provider spec 값을 검증하지 않고 그대로 읽기만 한다 — 실제 유효성
+    # 검사는 jobfind/providers/base.py의 get_provider()에서 한다.
+    monkeypatch.setenv("PROVIDER_PLANNER", "api:anthropic")
     monkeypatch.setenv("PROVIDER_PLAN_EVALUATOR", "api:anthropic")
     monkeypatch.setenv("PROVIDER_WRITER", "claude_cli")
     monkeypatch.setenv("PROVIDER_DRAFT_EVALUATOR", "api:openai")
     cfg = load_config()
-    assert cfg.PROVIDER_PLANNER == "codex_cli"
+    assert cfg.PROVIDER_PLANNER == "api:anthropic"
     assert cfg.PROVIDER_PLAN_EVALUATOR == "api:anthropic"
     assert cfg.PROVIDER_WRITER == "claude_cli"
     assert cfg.PROVIDER_DRAFT_EVALUATOR == "api:openai"

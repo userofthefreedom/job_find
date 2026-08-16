@@ -253,9 +253,12 @@ PROVIDER_VERIFIER=claude_cli        # 공고 상세 요건을 검수하는 역�
 | 값 | 설명 | 준비물 |
 |---|---|---|
 | `claude_cli` (기본값, 추천) | Claude Code CLI를 그대로 사용 | Claude Code가 설치·로그인돼 있으면 끝. 추가 설정 불필요 |
-| `codex_cli` | OpenAI Codex CLI를 그대로 사용 | Codex CLI 설치·로그인 필요. **이 프로젝트에서 실제로 검증되지 않은 기능입니다** — 오류가 나면 `claude_cli`로 되돌리세요 |
 | `api:anthropic` | Anthropic API를 직접 호출 | `.env`에 `ANTHROPIC_API_KEY` 필요, 호출당 과금 |
 | `api:openai` | OpenAI API를 직접 호출 | `.env`에 `OPENAI_API_KEY` 필요, 호출당 과금 |
+
+> `codex_cli`(OpenAI Codex CLI) 지원은 끝내 실사용 검증이 안 된 채로 남아 있느니 폐기하는
+> 게 낫다고 판단해 제거했습니다. 위 세 provider 모두 이미지를 읽을 수 있어 `PROVIDER_VERIFIER`
+> 비전 제약 걱정 없이 아무거나 골라도 됩니다.
 
 **아무것도 안 바꾸면 기본값(`claude_cli`)이 적용되니, Claude Code를 이미 쓰고 있다면
 이 단계를 건너뛰어도 됩니다.**
@@ -276,10 +279,11 @@ OPENAI_API_KEY=sk-여기에실제키
 
 ### 4-5. DART 연동 (선택)
 
-`DART_API_KEY`를 채워두면, 자소서 계획 단계에서 지원 기업이 DART(전자공시시스템)에 등록된
-상장기업일 경우 대표자·설립일·시장 구분·홈페이지 같은 기업 개황을 자동으로 조회해 계획
-agent에게 넘겨줍니다. 안 채워도 나머지 기능은 전부 정상 동작하고, 애초에 비상장 스타트업처럼
-DART에 없는 회사가 훨씬 많아 이 항목은 있으면 도움이 되는 보너스 정도로 생각하면 됩니다.
+`DART_API_KEY`를 채워두면, 자소서 계획 단계에서 지원 기업이 DART(전자공시시스템)에 등록돼
+있으면 대표자·설립일·시장 구분·홈페이지 같은 기업 개황을 자동으로 조회해 계획 agent에게
+넘겨줍니다. 대부분 상장기업이지만, 일부 비상장 공시대상법인도 DART에 등록돼 있어 함께
+조회됩니다. 안 채워도 나머지 기능은 전부 정상 동작하고, 애초에 소규모 비상장 스타트업처럼
+DART에 아예 없는 회사가 훨씬 많아 이 항목은 있으면 도움이 되는 보너스 정도로 생각하면 됩니다.
 
 1. [opendart.fss.or.kr](https://opendart.fss.or.kr) 에서 무료로 가입 즉시 인증키를 발급받습니다.
 2. `.env`에 키를 채웁니다.
@@ -407,8 +411,8 @@ python jobfind.py write
 
 계획 수립 단계(`claude_cli`를 쓸 때만 실제로 동작)는 회사 최근 뉴스·홈페이지를 웹
 검색해 계획에 반영합니다 — "이 회사에 관심이 많다"는 식의 진부한 지원동기 대신 구체적인
-내용을 넣기 위함입니다. 검색이 실패하거나 도구를 못 쓰는 provider(`codex_cli`,
-`api:*`)여도 계획 수립 자체는 가진 정보로 계속 진행됩니다.
+내용을 넣기 위함입니다. 검색이 실패하거나 도구를 못 쓰는 provider(`api:*`)여도 계획 수립
+자체는 가진 정보로 계속 진행됩니다.
 
 ```
 [2026-08-14 12:10] 자소서 작성 시작 | 대상: 2건
@@ -624,8 +628,8 @@ python -m pytest tests/ -v
 | 원티드 | 비공식 API (`/api/v4/jobs`, `/api/v4/jobs/<id>`), 인증 불필요 |
 | HTTP | requests |
 | 관련성 평가 | sentence-transformers + snunlp/KR-SBERT-V40K-klueNLI-augSTS (로컬, 비용 없음) |
-| AI provider | claude_cli / codex_cli / api:anthropic / api:openai (역할별로 다르게 설정 가능) |
-| 기업 정보 조회 | DART 오픈API(선택, 상장기업만) + 계획 단계 웹 검색(`claude_cli`만) |
+| AI provider | claude_cli / api:anthropic / api:openai (역할별로 다르게 설정 가능, `codex_cli`는 Phase 20에서 지원 폐기) |
+| 기업 정보 조회 | DART 오픈API(선택, 대부분 상장기업+일부 비상장 공시대상법인) + 계획 단계 웹 검색(`claude_cli`만) |
 | 공고 최종검수 | 원티드는 상세 API 텍스트, 사람인은 `view-detail` 엔드포인트로 얻은 본문 이미지를 AI(비전)로 대조 (`verify`) |
 | 환경 변수 | python-dotenv |
 | 런타임 | Windows 로컬, 사용자가 터미널에서 직접 실행 |
@@ -635,10 +639,8 @@ python -m pytest tests/ -v
 - 사람인 공고는 상세 설명(담당업무·자격요건)이 자바스크립트로 렌더링돼 있어 자동으로
   가져올 수 없습니다. 자소서 작성 시 목록 정보만으로 초안이 만들어지며, 보완하려면
   `materials/notes.md`에 직접 내용을 적어두면 됩니다.
-- `codex_cli` provider는 이 프로젝트를 만든 환경에 Codex CLI가 설치되어 있지 않아 실제
-  동작을 검증하지 못했습니다. 오류가 나면 `claude_cli`로 바꿔 사용하세요.
-- DART 연동은 실제 `DART_API_KEY` 없이 모킹으로만 검증됐습니다. 문제가 있으면
-  `DART_API_KEY`를 비워 기능을 끄고 사용할 수 있습니다.
+- DART 연동은 실제 `DART_API_KEY`로 전 구간(상장기업·비상장 공시대상법인·미등록 회사)을
+  검증 완료했습니다. 문제가 있으면 `DART_API_KEY`를 비워 기능을 끄고 사용할 수 있습니다.
 - 자소서 문항을 직접 제공하는 자소설닷컴 같은 사이트 연동은 검토했지만 보류했습니다
   (정적 스크래핑 불가 + 제3자 큐레이션 콘텐츠라는 정책적 고려). 문항은 지금처럼 직접
   `materials/notes.md`에 복사해 넣어 활용하세요 — 있으면 계획·작성 단계가 표준 4문항

@@ -7,7 +7,6 @@ import pytest
 from jobfind.providers.api import ApiProvider
 from jobfind.providers.base import get_provider
 from jobfind.providers.claude_cli import ClaudeCliProvider
-from jobfind.providers.codex_cli import CodexCliProvider
 
 
 # ── get_provider ──────────────────────────────────────────────────────────────
@@ -15,8 +14,10 @@ from jobfind.providers.codex_cli import CodexCliProvider
 def test_get_provider_claude_cli():
     assert isinstance(get_provider("claude_cli"), ClaudeCliProvider)
 
-def test_get_provider_codex_cli():
-    assert isinstance(get_provider("codex_cli"), CodexCliProvider)
+def test_get_provider_codex_cli_no_longer_supported():
+    # Phase 20: codex_cli provider 지원 폐기 — 미지원 spec으로 취급되어야 한다
+    with pytest.raises(ValueError):
+        get_provider("codex_cli")
 
 def test_get_provider_api_anthropic():
     provider = get_provider("api:anthropic")
@@ -126,36 +127,6 @@ def test_claude_cli_provider_raises_on_nonzero_returncode(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="command not found"):
         ClaudeCliProvider().run("system", "user")
-
-
-# ── CodexCliProvider ─────────────────────────────────────────────────────────
-
-def test_codex_cli_provider_returns_stdout(monkeypatch):
-    import jobfind.providers.codex_cli as mod
-
-    monkeypatch.setattr(
-        mod.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess("결과 텍스트\n")
-    )
-    assert CodexCliProvider().run("system", "user") == "결과 텍스트"
-
-def test_codex_cli_provider_ignores_extra_tools(monkeypatch):
-    import jobfind.providers.codex_cli as mod
-
-    monkeypatch.setattr(
-        mod.subprocess, "run", lambda cmd, **kw: _FakeCompletedProcess("결과\n")
-    )
-    # extra_tools를 받아도 에러 없이 그냥 무시하고 정상 실행되어야 한다
-    assert CodexCliProvider().run("system", "user", extra_tools=["WebSearch"]) == "결과"
-
-def test_codex_cli_provider_missing_binary_raises_clear_error(monkeypatch):
-    import jobfind.providers.codex_cli as mod
-
-    def raise_not_found(cmd, **kw):
-        raise FileNotFoundError()
-
-    monkeypatch.setattr(mod.subprocess, "run", raise_not_found)
-    with pytest.raises(RuntimeError, match="codex CLI를 찾을 수 없습니다"):
-        CodexCliProvider().run("system", "user")
 
 
 # ── ApiProvider ──────────────────────────────────────────────────────────────

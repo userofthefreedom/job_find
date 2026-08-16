@@ -1,6 +1,6 @@
 # PLAN — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-16 (Phase 19 완료 — 미착수 Phase 없음) | 기반 문서: PRD.md, SPEC.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-16 (Phase 20 완료 — 미착수 Phase 없음) | 기반 문서: PRD.md, SPEC.md_
 
 ---
 
@@ -22,7 +22,8 @@ Phase 5(안정성/신뢰성)·6(필터 고도화)·7(지원 상태 추적)까지
 2026-08-15엔 `write`를 실제로 실행해 나온 산출물(`output/cover_letters/`)을 분석한 결과
 발견된 문제들을 Phase 17~18로 착수했다 — 초안 재작성 루프 부재로 인한 약점 반복 노출(17),
 자소서 문항 채널이 문서화만 되고 운영되지 않던 문제(18). 2026-08-16엔 이어서 Phase 19(복수
-직무 묶음 공고 감지)까지 완료해, 이 시점 기준 미착수 Phase가 없다. 새로운 개선 아이디어가
+직무 묶음 공고 감지)에 이어 Phase 20(기존 미결 사항 정리 — `codex_cli` provider 폐기,
+DART 연동 실키 검증)까지 완료해, 이 시점 기준 미착수 Phase가 없다. 새로운 개선 아이디어가
 생기면 이 문서에 새 Phase로 추가해 이어간다.
 
 ## 완료 Phase 요약
@@ -45,6 +46,7 @@ Phase 5(안정성/신뢰성)·6(필터 고도화)·7(지원 상태 추적)까지
 | 17 | 자소서 공통 스타일 원칙 + 초안 재작성 루프 — 약점 반복 노출 방지, `draft_review`의 `NEEDS_REVISION` 피드백이 실제로 최종 초안에 반영되도록 최대 1회 재작성 루프 추가 |
 | 18 | 실제 자소서 문항을 `materials/notes.md`에서 우선 반영 — `select` 안내 출력 추가, 계획/작성 프롬프트가 `notes.md`의 실제 문항을 표준 4문항 가정보다 우선하도록 명시 |
 | 19 | 복수 직무 묶음 공고(공채) 감지 — 제목 신호로 후보를 `[공채후보]`로 표시하고, `select`에서 `notes.md`로 세부 직무를 안내받는 채널(Phase 18)을 재사용. 자동 분리는 범위 밖 |
+| 20 | 기존 미결 사항 정리 — `codex_cli` provider 지원 폐기(끝내 실사용 검증 안 됨, OQ4 해소) + DART 연동 실제 API 키 전 구간 검증(OQ6 해소) |
 
 > 각 행의 상세 구현 목록·검증 방법·실측 결과는 `docs/history/PLAN_ARCHIVE.md`의 동일 Phase
 > 번호 섹션(Phase 17 이후는 이 문서에 직접) 참고.
@@ -59,8 +61,35 @@ Phase 5(안정성/신뢰성)·6(필터 고도화)·7(지원 상태 추적)까지
 카페매니저, 카페, 음식료`). 태그 신호를 제거하고 제목 패턴만 남기자 같은 표본에서 1건
 (`"...2026년 공개채용..."`)만 후보로 남아 오탐이 사라졌다. 상세 정규식·근거는
 `docs/SPEC.md` §4-7a 참고. 테스트 13개 추가(`tests/test_bundle_detection.py`,
-`tests/test_storage.py`, `tests/test_cli_select.py`), 전체 스위트 232→231개(태그 신호 제거로
-테스트 1개 조정) 전부 통과.
+`tests/test_storage.py`, `tests/test_cli_select.py`), 전체 스위트 219→231개(태그 신호
+제거 과정에서 조정 있었음) 전부 통과.
+
+### Phase 20 검증 기록
+
+**codex_cli 폐기**: `jobfind/providers/codex_cli.py`와 `CodexCliProvider` 관련 코드·테스트를
+전부 제거했다. `get_provider("codex_cli")`는 이제 `ValueError`를 낸다(다른 미지원 spec과
+동일하게 취급). `.env`/`.env.example`의 `PROVIDER_*` 값은 이미 전부 `claude_cli`였어서
+설정값 마이그레이션은 필요 없었고, 주석만 갱신했다.
+
+**DART 실키 검증**: `.env`의 실제 `DART_API_KEY`로 `fetch_company_profile()`을 캐시 없이
+처음부터(corpCode.xml zip 다운로드 → XML 파싱 → 회사명 매칭 → company.json 조회 → JSON
+파싱 → 포맷팅) 실행해 검증했다.
+
+| 입력 | 결과 |
+|---|---|
+| "삼성전자" (상장) | 대표자·설립일·시장구분(유가증권시장 상장)·주소·홈페이지 정상 반환 |
+| "카카오" (상장) | 정상 반환, corpCode 재다운로드 포함 전체 소요 약 1초 |
+| "인터케어" (사용자의 실제 `jobs_all.txt`에 있던 회사, 비상장) | `corp_cls: "E"`(기타/비상장)로 등록돼 있어 개황 반환됨 — "상장기업만" 커버한다는 기존 문서 설명이 부정확했음을 발견, PRD/SPEC/README 문구를 "DART 공시대상법인"으로 수정 |
+| 존재하지 않는 회사명 | 빈 문자열 반환 (정상) |
+| 빈 문자열 입력 | 빈 문자열 반환 (정상) |
+
+`tests/test_dart.py`의 12개 모킹 테스트가 가정한 필드명(`ceo_nm`/`est_dt`/`corp_cls`/
+`adres`/`hm_url`)과 응답 형식(`status: "000"`)이 실제 API 응답과 정확히 일치해 코드 수정은
+필요 없었다. 검증 중 생성된 `output/.dart_corp_codes.json` 캐시는 정상적인 부산물이라 그대로
+둔다(`.gitignore`의 `output/*`에 포함돼 커밋 안 됨).
+
+테스트: codex 관련 3개 제거, `test_config.py`의 provider pass-through 테스트 값을
+`codex_cli`에서 `api:anthropic`으로 교체. 전체 스위트 231→228개 전부 통과.
 
 ---
 

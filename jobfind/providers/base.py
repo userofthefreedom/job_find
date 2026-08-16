@@ -24,10 +24,6 @@ def get_provider(spec: str) -> Provider:
         from jobfind.providers.claude_cli import ClaudeCliProvider
 
         return ClaudeCliProvider()
-    if spec == "codex_cli":
-        from jobfind.providers.codex_cli import CodexCliProvider
-
-        return CodexCliProvider()
     if spec.startswith("api:"):
         from jobfind.providers.api import ApiProvider
 

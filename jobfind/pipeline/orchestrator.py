@@ -14,7 +14,7 @@ COVER_LETTERS_DIR = "output/cover_letters"
 PROFILE_PATH = "profile.md"
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 # planner가 회사 리서치(뉴스·홈페이지)를 스스로 검색해 계획에 반영할 수 있게 열어주는 툴.
-# claude_cli에서만 실제로 동작한다 — codex_cli/api:*는 --allowedTools 개념이 없어 무시된다.
+# claude_cli에서만 실제로 동작한다 — api:*는 --allowedTools 개념이 없어 무시된다.
 PLANNER_RESEARCH_TOOLS = ["WebSearch", "WebFetch"]
 
 

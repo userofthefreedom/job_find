@@ -10,9 +10,10 @@
   Phase 8 변경 이력 참고). 수집부터 자소서 작성까지 전부 `python jobfind.py <command>`로
   사용자가 직접 트리거한다.
 - **AI provider 다각화**: 자소서 파이프라인의 각 역할(계획/계획평가/작성/초안평가)은
-  Claude CLI(`claude -p`) · Codex CLI(`codex exec`) · Anthropic/OpenAI API 중 `.env`에서
-  선택한 백엔드로 동작한다. 어디서 실행하든(터미널/IDE 확장/대화 중 요청) 동일한 CLI
-  진입점을 쓰므로 실행 위치는 자유롭다.
+  Claude CLI(`claude -p`) · Anthropic/OpenAI API 중 `.env`에서 선택한 백엔드로 동작한다.
+  어디서 실행하든(터미널/IDE 확장/대화 중 요청) 동일한 CLI 진입점을 쓰므로 실행 위치는
+  자유롭다. (Codex CLI 지원은 Phase 20에서 폐기 — 실사용 검증이 끝내 안 됐고 필요도
+  없어져 claude_cli/api 둘로만 운영한다, 아래 Tech Stack 참고)
 - **관련성 평가는 비용 없는 로컬 HuggingFace 임베딩 모델**로 처리한다 (LLM 호출 아님).
 - 사람인·원티드 두 플랫폼에서 공고 수집, 결과를 단일 파일(`output/jobs_all.txt`)에 통합해
   누적 기록한다.
@@ -29,18 +30,18 @@
   (`snunlp/KR-SBERT-V40K-klueNLI-augSTS`, 최초 실행 시 자동 다운로드). 파인튜닝은 하지 않음 —
   자세한 배경은 `docs/PLAN.md` Phase 9·15 참고 (원래 `jhgan/ko-sroberta-multitask`였으나
   Phase 15에서 실측 비교 후 도메인 판별력이 더 나은 이 모델로 교체)
-- **AI provider**: `jobfind/providers/`에 4개 백엔드
+- **AI provider**: `jobfind/providers/`에 3개 백엔드(Phase 20에서 `codex_cli` 폐기 —
+  `docs/PLAN.md` Phase 20 참고)
   - `claude_cli`: `claude -p` subprocess 헤드리스 호출 (이미 로그인된 세션 사용, API 키 불필요).
     자소서 계획(planner) 단계에는 `--allowedTools`로 `WebSearch`/`WebFetch`를 열어줘 회사
     뉴스·홈페이지를 직접 검색하게 한다 (Phase 15, 호출당 비용/시간 증가 트레이드오프 있음)
-  - `codex_cli`: `codex exec` subprocess 헤드리스 호출 (실제 플래그 미검증 — `docs/PLAN.md`
-    Phase 11 리스크 참고). extra_tools(WebSearch 등)는 인터페이스 호환을 위해 받되 무시함
   - `api:anthropic` / `api:openai`: `requests`로 Messages/Chat Completions API 직접 호출
     (`.env`의 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 사용, 호출당 과금). extra_tools는 대응하는
     서버사이드 툴 연동이 없어 무시함
 - **DART(전자공시) 연동**: `jobfind/dart.py` — `DART_API_KEY`가 있으면 자소서 계획 단계에
-  상장기업 개황(대표자·설립일·시장구분·홈페이지)을 자동 반영. 무료·즉시발급 공식 API지만
-  비상장 회사는 커버 안 됨 (Phase 15)
+  기업 개황(대표자·설립일·시장구분·홈페이지)을 자동 반영. 무료·즉시발급 공식 API. 대부분
+  상장기업이지만 일부 비상장 공시대상법인도 커버되며, 소규모 비상장 스타트업은 여전히
+  커버 안 됨 (Phase 15 도입, Phase 20에서 실제 API 키로 전 구간 검증 완료)
 - **Config / secrets**: `python-dotenv` — 필터·관련성·provider 설정과 API 키를 전부 `.env`
   하나에서 로드 (v3 초반엔 `config.ini` + `.env`로 나뉘어 있었으나, 결국 둘 다 사람이 직접
   입력하는 파일이라 실사용 피드백으로 `.env` 하나로 통합함)
@@ -67,7 +68,7 @@
 │   ├── dart.py                   # DART 기업개황 조회 (상장기업만, API 키 있을 때만)
 │   ├── selection.py               # [자소서] 마커 스캔, materials/ 폴더 준비
 │   ├── storage.py                # jobs_all.txt/dismissed_ids.txt 읽기·쓰기, 블록 파싱, 마커 처리
-│   ├── providers/                # AI provider 추상화 (claude_cli/codex_cli/api)
+│   ├── providers/                # AI provider 추상화 (claude_cli/api)
 │   └── pipeline/                 # 자소서 오케스트레이션 (prompts.py, orchestrator.py)
 ├── profile.md                    # 사용자 이력/자기소개 자유 텍스트 (.gitignore 대상)
 ├── profile.md.example            # profile.md 템플릿 (Git 포함)
@@ -196,12 +197,18 @@ PROVIDER_PLANNER=claude_cli
 
 **2026-08-16 기준 계획된 Phase가 전부 완료됐다** — v1(Phase 1~4) + v3 재설계(Phase 8~13) +
 실사용 피드백(Phase 14~18) + 2026-07-10 로드맵 초안이던 Phase 5~7 + 복수 직무 묶음 공고 감지
-(Phase 19)까지 전부 구현·검증됐다. 더 이상 미착수 Phase가 없다 — 각 Phase의 상세 구현
-내용·검증 로그는 `docs/PLAN.md`(요약)와 `docs/history/PLAN_ARCHIVE.md`(전문)를 참고한다.
+(Phase 19) + provider 정리·DART 실키 검증(Phase 20)까지 전부 구현·검증됐다. 더 이상 미착수
+Phase가 없다 — 각 Phase의 상세 구현 내용·검증 로그는 `docs/PLAN.md`(요약)와
+`docs/history/PLAN_ARCHIVE.md`(전문)를 참고한다.
+
+Phase 20에서 (1) 끝내 실사용 검증이 안 되던 `codex_cli` provider를 폐기해 `claude_cli`/
+`api:*` 두 경로로만 운영하도록 정리했고(OQ4 해소), (2) 실제 `DART_API_KEY`로 DART 연동을
+전 구간 검증해 정상 동작을 확인했다(OQ6 해소, 부수 발견: DART가 상장기업뿐 아니라 일부
+비상장 공시대상법인도 커버함).
 
 새 개선 아이디어가 생기면 `docs/PLAN.md`에 새 Phase로 추가해 이어간다. 강제 작업은 아니지만
-재검토 여지가 있는 항목은 `docs/PRD.md` "미결 사항(OQ1~OQ8)"에 정리돼 있다 — 특히 OQ4(codex_cli
-플래그 미검증), OQ6(DART 연동 실키 미검증), OQ8(verify 판정 비일관성)은 재개 시 먼저 확인.
+재검토 여지가 있는 항목은 `docs/PRD.md` "미결 사항(OQ1~OQ8)"에 정리돼 있다 — 남은 건
+OQ8(verify 판정 비일관성, 알려진 한계로 README에 이미 명시돼 있어 조치 불필요) 정도다.
 
 ## Scraping & API Constraints
 

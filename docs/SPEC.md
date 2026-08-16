@@ -1,6 +1,6 @@
 # SPEC — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-16 (Phase 19: 복수 직무 묶음 공고 감지 §4-7a 추가) | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-16 (Phase 20: codex_cli 지원 폐기 §12 갱신 + DART 실키 검증 §13-5 갱신) | 기반 문서: PRD.md_
 
 ---
 
@@ -19,7 +19,7 @@ jobfind/verification.py       ← 상세 요건 최종검수 — AI로 목록 �
 jobfind/bundle_detection.py   ← 복수 직무 묶음(공채) 후보 감지 — 제목 패턴 기반
 jobfind/selection.py          ← [자소서] 마커 스캔, materials/ 폴더 준비
 jobfind/storage.py            ← jobs_all.txt/dismissed_ids.txt 입출력, 블록 파싱, 마커 처리
-jobfind/providers/            ← AI provider 추상화 (claude_cli/codex_cli/api)
+jobfind/providers/            ← AI provider 추상화 (claude_cli/api)
 jobfind/pipeline/             ← 자소서 오케스트레이션 (prompts.py, orchestrator.py)
 ```
 
@@ -816,8 +816,10 @@ fetch_saramin_images(rec_idx):
 ```
 
 이미지 자체는 별도 인증 없이 CDN에서 바로 내려받을 수 있어(`_download_images()`), 받은
-이미지를 `Provider.run(images=...)`로 넘긴다 — 비전을 지원하지 않는 provider(예:
-`codex_cli`)는 이미지 내용을 못 읽으므로 사람인 공고는 사실상 항상 `UNKNOWN`이 나온다.
+이미지를 `Provider.run(images=...)`로 넘긴다. Phase 20에서 비전을 지원하지 않던
+`codex_cli`가 폐기된 뒤로는 남은 세 provider(`claude_cli`/`api:anthropic`/`api:openai`)
+전부 이미지를 읽을 수 있다 — 다만 `PROVIDER_VERIFIER`는 여전히 비전을 지원하는 provider로만
+설정해야 한다는 전제는 그대로다(§9 환경 변수 참고).
 
 ### 10-4. 판정 로직 (`verify_jobs()`)
 
@@ -963,7 +965,7 @@ class Provider(Protocol):
 
 
 def get_provider(spec: str) -> Provider:
-    # spec: "claude_cli" | "codex_cli" | "api:anthropic" | "api:openai"
+    # spec: "claude_cli" | "api:anthropic" | "api:openai"
     ...
 ```
 
@@ -972,8 +974,8 @@ def get_provider(spec: str) -> Provider:
 
 `extra_tools`(Phase 15 추가)는 `claude_cli`에서만 실제로 동작하는 선택적 힌트다. 예:
 `["WebSearch", "WebFetch"]`를 넘기면 `--allowedTools`에 그대로 합쳐져 회사 리서치를
-허용한다 (§13-1). `codex_cli`/`api:*`는 이 값을 인자로만 받고 무시한다 — 대응하는 실제
-툴 제어 수단이 없기 때문이다.
+허용한다 (§13-1). `api:*`는 이 값을 인자로만 받고 무시한다 — 대응하는 실제 툴 제어
+수단이 없기 때문이다.
 
 ### 12-2. `claude_cli`
 
@@ -997,13 +999,12 @@ subprocess.run(["claude", "-p", user_prompt,
   `returncode != 0`이면 `RuntimeError`를 발생시킨다.
 - 실제 `claude -p` 호출로 텍스트 전용/이미지 포함 양쪽 다 검증 완료 (Phase 11 기록 참고).
 
-### 12-3. `codex_cli`
+> `codex_cli`(`codex exec` 헤드리스 호출) provider는 Phase 11에서 추가됐으나 개발 환경에
+> Codex CLI가 없어 실제 플래그를 끝내 검증하지 못했다(옛 OQ4). Phase 20에서 지원을
+> 폐기하고 `jobfind/providers/codex_cli.py`를 삭제했다 — 재도입하려면 `codex --help`로
+> 실제 헤드리스 실행 규약부터 확인해야 한다.
 
-공개된 `codex exec <prompt>` 비대화형 실행 방식을 기준으로 작성했으나, 개발 환경에 Codex
-CLI가 설치되어 있지 않아 실제 플래그를 검증하지 못했다. 실사용 전 `codex --help`로 재확인이
-필요하다 (미결 사항 OQ4, `docs/PRD.md` 참고).
-
-### 12-4. `api:anthropic` / `api:openai`
+### 12-3. `api:anthropic` / `api:openai`
 
 `requests`로 각 Messages/Chat Completions API를 직접 호출한다. 키는 `.env`의
 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`에서 읽으며, 없으면 명확한 오류를 낸다. 이미지는
@@ -1076,7 +1077,7 @@ if draft_review 가 "NEEDS_REVISION"으로 시작:
 목록 페이지에서 긁은 요약(제목·조건·태그)만으로는 planner/writer가 진부하고 회사 특정성
 없는 결과를 내는 문제가 Phase 12 실데이터 검증에서 확인됐다. 이를 보완하기 위해 provider
 호출 전에 서버 측(Python)에서 한 번 상세 설명을 가져와 `job_text`에 얹는다 — provider
-종류(claude_cli/codex_cli/api)와 무관하게 동일하게 동작한다.
+종류(claude_cli/api)와 무관하게 동일하게 동작한다.
 
 | 소스 | 방법 | 결과 |
 |---|---|---|
@@ -1104,8 +1105,10 @@ if draft_review 가 "NEEDS_REVISION"으로 시작:
 
 ### 13-5. 기업 개황 보강 (`jobfind/dart.py`)
 
-DART(전자공시시스템) 오픈API로 지원 기업이 상장기업이면 대표자·설립일·시장구분·홈페이지 등
-개황을 자동으로 가져와 `job_text`에 얹는다 (§13-1).
+DART(전자공시시스템) 오픈API로 지원 기업이 DART에 등록돼 있으면 대표자·설립일·시장구분·
+홈페이지 등 개황을 자동으로 가져와 `job_text`에 얹는다 (§13-1). 대부분 상장기업이지만,
+실키 검증(Phase 20) 중 비상장 공시대상법인(`corp_cls: "E"`)도 등록돼 있어 함께 조회됨을
+확인했다 — "상장기업만"이 아니라 "DART 공시 의무가 있는 법인"이 더 정확한 범위다.
 
 ```
 fetch_company_profile(company_name):
@@ -1120,9 +1123,12 @@ fetch_company_profile(company_name):
 - 비상장 스타트업 등 DART에 없는 회사가 훨씬 많으므로, 조회 실패는 예외가 아니라 정상
   경로로 취급하고 항상 빈 문자열로 조용히 넘어간다 — 파이프라인을 막지 않는다.
 - 무료, 가입 즉시 발급되는 키를 쓴다 (`.env`의 `DART_API_KEY`, §9).
-- **실제 API 키로 검증되지 않았다** — 이 프로젝트를 만든 환경에 발급받은 키가 없어
-  `tests/test_dart.py`의 12개 테스트는 전부 `requests.get`/`_load_corp_codes`를 모킹한
-  단위 테스트다. 실사용 중 필드명이나 응답 형식이 다르면 조정이 필요할 수 있다.
+- `tests/test_dart.py`의 12개 테스트는 `requests.get`/`_load_corp_codes`를 모킹한 단위
+  테스트다. **Phase 20에서 실제 `DART_API_KEY`로 전 구간(zip 다운로드·XML 파싱·회사명
+  매칭·company.json 조회)을 추가 검증했다** — 상장기업(삼성전자·카카오), 사용자의 실제
+  `jobs_all.txt`에 있던 비상장 공시대상법인(인터케어), 미등록 회사명, 빈 문자열 입력까지
+  전부 기대한 대로 동작했고 모킹 테스트가 가정한 필드명·응답 형식도 실제와 일치했다.
+  옛 미결 사항 OQ6 참고(`docs/PRD.md`, 지금은 해소됨).
 
 ### 13-6. planner의 웹 검색
 
@@ -1131,7 +1137,7 @@ planner 시스템 프롬프트(`prompts.planner_prompt`/`planner_revision_prompt
 지시를 추가하고, `orchestrator.py`의 `PLANNER_RESEARCH_TOOLS = ["WebSearch", "WebFetch"]`를
 planner 호출(초안 계획 + 재작성 계획)에만 `extra_tools`로 전달한다. 목적은 "이 회사에 관심이
 많습니다" 식의 진부한 지원동기 대신, 실제 최근 소식을 반영한 구체적인 내용을 계획에 담는
-것이다. 도구가 없거나(codex_cli/api:*) 검색이 실패해도 계획 수립 자체는 멈추지 않도록 프롬프트에
+것이다. 도구가 없거나(`api:*`) 검색이 실패해도 계획 수립 자체는 멈추지 않도록 프롬프트에
 명시했다.
 
 실제 `claude -p --allowedTools "WebSearch"` 호출로 검증 완료. 검색을 포함한 호출의 비용은
