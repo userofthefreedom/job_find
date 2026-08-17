@@ -87,3 +87,37 @@ def test_fetch_all_passes_skip_ids_to_jasoseol(monkeypatch):
     fetch_all({"jasoseol_1"})
 
     assert received["skip_ids"] == {"jasoseol_1"}
+
+
+# ── JASOSEOL_ENABLED 토글 (Phase 24) ────────────────────────────────────────
+
+def test_fetch_all_skips_jasoseol_when_disabled(monkeypatch):
+    monkeypatch.setattr(dedup_mod, "fetch_saramin_all", lambda: ([], False, False))
+    monkeypatch.setattr(dedup_mod, "fetch_wanted_all", lambda: ([], False))
+    monkeypatch.setattr(dedup_mod.config, "JASOSEOL_ENABLED", False)
+    calls = []
+    monkeypatch.setattr(
+        dedup_mod, "fetch_jasoseol_all",
+        lambda skip_ids: calls.append(1) or ([], False),
+    )
+
+    jobs, saramin_failed, wanted_failed, page_cap_hit, jasoseol_failed = fetch_all(set())
+
+    assert calls == []  # 꺼져 있으면 자소설닷컴 호출 자체가 발생하지 않음
+    assert jobs == []
+    assert jasoseol_failed is False
+
+
+def test_fetch_all_calls_jasoseol_when_enabled(monkeypatch):
+    monkeypatch.setattr(dedup_mod, "fetch_saramin_all", lambda: ([], False, False))
+    monkeypatch.setattr(dedup_mod, "fetch_wanted_all", lambda: ([], False))
+    monkeypatch.setattr(dedup_mod.config, "JASOSEOL_ENABLED", True)
+    calls = []
+    monkeypatch.setattr(
+        dedup_mod, "fetch_jasoseol_all",
+        lambda skip_ids: calls.append(1) or ([], False),
+    )
+
+    fetch_all(set())
+
+    assert calls == [1]

@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 from jobfind.collectors.jasoseol import fetch_jasoseol_all
 from jobfind.collectors.saramin import fetch_saramin_all
 from jobfind.collectors.wanted import fetch_wanted_all
+from jobfind.config import config
 
 
 def _norm_title(title: str) -> str:
@@ -31,9 +32,15 @@ def fetch_all(skip_ids: set[str]) -> tuple[list[dict], bool, bool, bool, bool]:
     자소설닷컴(Phase 23)은 사람인/원티드와 교차 중복제거를 하지 않는다 — 목록 제목이
     "2026년 8월 신입/경력 채용"처럼 회사 단위 포괄적 제목이라 특정 직무 제목과 유사도
     매칭이 안 되고, 애초에 서로 다른 지원 채널(사람인/원티드 지원 vs 자소설닷컴 자소서
-    작성)이라 중복이 아니다. skip_ids는 신규 회사만 상세조회하기 위해 넘긴다(§dedup)."""
+    작성)이라 중복이 아니다. skip_ids는 신규 회사만 상세조회하기 위해 넘긴다(§dedup).
+
+    `.env`의 JASOSEOL_ENABLED=false로 끄면 이 소스를 아예 호출하지 않는다(Phase 24 —
+    이용약관 위반 소지를 알고도 기본값은 켜두되, 부담스러운 사용자가 끌 수 있게 함)."""
     saramin_jobs, saramin_failed, page_cap_hit = fetch_saramin_all()
     wanted_jobs, wanted_failed = fetch_wanted_all()
-    jasoseol_jobs, jasoseol_failed = fetch_jasoseol_all(skip_ids)
+    if config.JASOSEOL_ENABLED:
+        jasoseol_jobs, jasoseol_failed = fetch_jasoseol_all(skip_ids)
+    else:
+        jasoseol_jobs, jasoseol_failed = [], False
     jobs = deduplicate_cross_platform(saramin_jobs, wanted_jobs) + jasoseol_jobs
     return jobs, saramin_failed, wanted_failed, page_cap_hit, jasoseol_failed

@@ -16,6 +16,11 @@ def _parse_optional_int(value: str) -> int | None:
     return int(value) if value else None
 
 
+def _parse_bool(value: str, default: bool) -> bool:
+    value = value.strip().lower()
+    return default if not value else value in ("true", "1", "yes")
+
+
 def load_config() -> SimpleNamespace:
     top_n_raw = os.environ.get("RELEVANCE_TOP_N", "20").strip()
     return SimpleNamespace(
@@ -32,6 +37,7 @@ def load_config() -> SimpleNamespace:
             "RELEVANCE_MODEL", "snunlp/KR-SBERT-V40K-klueNLI-augSTS"
         ).strip(),
         RELEVANCE_TOP_N=int(top_n_raw) if top_n_raw else 20,
+        JASOSEOL_ENABLED=_parse_bool(os.environ.get("JASOSEOL_ENABLED", ""), default=True),
         PROVIDER_PLANNER=os.environ.get("PROVIDER_PLANNER", "claude_cli").strip(),
         PROVIDER_PLAN_EVALUATOR=os.environ.get(
             "PROVIDER_PLAN_EVALUATOR", "claude_cli"

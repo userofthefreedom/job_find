@@ -221,6 +221,10 @@ def deduplicate_cross_platform(saramin: list[dict], wanted: list[dict]) -> list[
 **이용약관 제14조가 명시적으로 자동화 수집을 금지하고 있음을 확인했고, 사용자가 그 사실을
 알고도 진행을 택했다.**
 
+`.env`의 `JASOSEOL_ENABLED`(기본값 `true`)로 켜고 끌 수 있다(Phase 24) — `false`로 두면
+`dedup.fetch_all()`이 이 소스를 호출조차 하지 않는다. 이용약관 위반 리스크를 부담스러워하는
+사용자를 위한 탈출구다.
+
 ### 엔드포인트 두 개 (둘 다 로그인 없이 200 응답, 2026-08-17 실측)
 
 | 엔드포인트 | 역할 | 비고 |
@@ -839,6 +843,8 @@ Phase 14부터 필터(§3)·관련성(§11)·provider(§12) 설정과 API 키를
 
 ```
 # .env.example (발췌 — 전체 목록은 실제 파일 참고)
+JASOSEOL_ENABLED=true
+
 FILTER_KEYWORDS=
 FILTER_LOCATIONS=
 FILTER_CAREER_TYPE=
@@ -872,6 +878,11 @@ SARAMIN_ACCESS_KEY=
 API 키(`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`/`SARAMIN_ACCESS_KEY`) 값은 사용자가 직접
 채운다 — Claude가 대신 입력하지 않는다 (`CLAUDE.md` Security Rules 참고). 나머지 설정
 값은 사용자가 명시적으로 요청한 설정/마이그레이션 작업의 일부로 수정할 수 있다.
+
+`JASOSEOL_ENABLED`(Phase 24)는 `_parse_bool()`로 파싱하는 유일한 불리언 설정이다 —
+`"true"/"1"/"yes"`(대소문자 무관)면 켜짐, 그 외 비어있지 않은 값은 꺼짐, 비어있으면 기본값
+(`true`)을 쓴다. 끄면 `dedup.fetch_all()`이 `fetch_jasoseol_all()` 자체를 호출하지 않아
+사람인/원티드 수집에는 영향이 없다(§2F).
 
 ---
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from jobfind.config import _parse_list, _parse_optional_int, load_config
+from jobfind.config import _parse_bool, _parse_list, _parse_optional_int, load_config
 
 
 def test_parse_list_splits_and_strips():
@@ -93,3 +93,27 @@ def test_load_config_relevance_defaults(monkeypatch):
     assert cfg.RELEVANCE_DOMAINS == ""
     assert cfg.RELEVANCE_TOP_N == 20
     assert cfg.RELEVANCE_MODEL == "snunlp/KR-SBERT-V40K-klueNLI-augSTS"
+
+
+# ── _parse_bool / JASOSEOL_ENABLED (Phase 24: on/off 토글) ──────────────────
+
+def test_parse_bool_true_values():
+    assert _parse_bool("true", default=False) is True
+    assert _parse_bool("1", default=False) is True
+    assert _parse_bool("yes", default=False) is True
+    assert _parse_bool("TRUE", default=False) is True
+
+def test_parse_bool_false_value():
+    assert _parse_bool("false", default=True) is False
+
+def test_parse_bool_blank_uses_default():
+    assert _parse_bool("", default=True) is True
+    assert _parse_bool("  ", default=False) is False
+
+def test_load_config_jasoseol_enabled_defaults_true(monkeypatch):
+    monkeypatch.delenv("JASOSEOL_ENABLED", raising=False)
+    assert load_config().JASOSEOL_ENABLED is True
+
+def test_load_config_jasoseol_enabled_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("JASOSEOL_ENABLED", "false")
+    assert load_config().JASOSEOL_ENABLED is False

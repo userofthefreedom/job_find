@@ -325,9 +325,8 @@ python jobfind.py collect
 > **알아두어야 할 위험**: 자소설닷컴 이용약관은 허가 없는 자동화 수집(수집로봇·스크래퍼
 > 등)을 명시적으로 금지하고 있습니다. 이 도구는 로그인 없이 공개된 API만 호출하지만,
 > 약관상으로는 이용약관 위반 소지가 있습니다. 이 기능을 계속 쓸지는 본인 판단으로
-> 결정하세요 — 끄고 싶다면 `jobfind/dedup.py`의 `fetch_jasoseol_all(...)` 호출 부분을
-> 직접 제거하거나 `jobs = deduplicate_cross_platform(...) + jasoseol_jobs`에서
-> `+ jasoseol_jobs`를 지우면 됩니다(현재 별도 on/off 설정은 없습니다).
+> 결정하세요 — `.env`의 `JASOSEOL_ENABLED=false`로 언제든 끌 수 있습니다(기본값 `true`,
+> 사람인/원티드 수집에는 영향 없습니다).
 
 ```
 [2026-08-15 19:45] 조회: 500건 | ... | [경고] 사람인 페이지 상한(10페이지) 도달 — 더 많은 공고가 있을 수 있음
@@ -666,7 +665,7 @@ python -m pytest tests/ -v
 | 언어 | Python 3.11+ |
 | 사람인 | 공개 검색 페이지 HTML 스크래핑 (beautifulsoup4) |
 | 원티드 | 비공식 API (`/api/v4/jobs`, `/api/v4/jobs/<id>`), 인증 불필요 |
-| 자소설닷컴 | 비공식 API (`/employment/calendar_list.json`, `/api/v1/employment_companies/<id>`), 인증 불필요이나 이용약관상 자동 수집 금지 조항 있음(아래 알려진 한계 참고) |
+| 자소설닷컴 | 비공식 API (`/employment/calendar_list.json`, `/api/v1/employment_companies/<id>`), 인증 불필요이나 이용약관상 자동 수집 금지 조항 있음(아래 알려진 한계 참고). `JASOSEOL_ENABLED=false`로 끌 수 있음 |
 | HTTP | requests |
 | 관련성 평가 | sentence-transformers + snunlp/KR-SBERT-V40K-klueNLI-augSTS (로컬, 비용 없음) |
 | AI provider | claude_cli / api:anthropic / api:openai (역할별로 다르게 설정 가능, `codex_cli`는 Phase 20에서 지원 폐기) |
