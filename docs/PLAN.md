@@ -1,6 +1,6 @@
 # PLAN — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-17 (Phase 23 완료 — 미착수 Phase 없음) | 기반 문서: PRD.md, SPEC.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-17 (Phase 24 완료 — 미착수 Phase 없음) | 기반 문서: PRD.md, SPEC.md_
 
 ---
 
@@ -25,8 +25,9 @@ Phase 5(안정성/신뢰성)·6(필터 고도화)·7(지원 상태 추적)까지
 직무 묶음 공고 감지)에 이어 Phase 20(기존 미결 사항 정리 — `codex_cli` provider 폐기,
 DART 연동 실키 검증), Phase 21(자소서 작성 전략 지식 반영)까지 완료했다. 2026-08-17엔
 Phase 22(notes.md 자동 생성 + 폴더명 개선)에 이어, 같은 세션에서 Phase 23(자소설닷컴 연동
-— Phase 22의 "보류" 판단을 재검증 끝에 뒤집고 실제 구현)까지 마쳐, 이 시점 기준 미착수
-Phase가 없다. 새로운 개선 아이디어가 생기면 이 문서에 새 Phase로 추가해 이어간다.
+— Phase 22의 "보류" 판단을 재검증 끝에 뒤집고 실제 구현), Phase 24(자소설닷컴 on/off 토글
++ README 최종 정리)까지 마쳐, 이 시점 기준 미착수 Phase가 없다. 새로운 개선 아이디어가
+생기면 이 문서에 새 Phase로 추가해 이어간다.
 
 ## 완료 Phase 요약
 
@@ -52,6 +53,7 @@ Phase가 없다. 새로운 개선 아이디어가 생기면 이 문서에 새 Ph
 | 21 | 자소서 작성 전략 지식(G14) — 두괄식/STAR/지원동기 구체성/클리셰 회피/약점·포부 구조를 계획·작성·평가 프롬프트에 공유 반영. 공개 작성법 리서치 + 사용자 본인 소유 과거 지원 자료 분석에서만 도출(제3자 개인 합격 자소서 원문 수집은 정책적으로 배제) |
 | 22 | 실사용 불편 3건 개선 — (1) `select` 시 `materials/notes.md` 빈 템플릿 자동 생성(없을 때만, Phase 18 채널 강화) (2) `cover_letters/` 폴더명을 `<ID>_<회사명>_<직무명>`으로 변경 (3) 자소설닷컴 연동 최초 검토 — **이 시점엔 보류로 결론(같은 세션 안에서 Phase 23으로 뒤집힘, 아래 참고)** |
 | 23 | 자소설닷컴 연동 실제 구현(G15) — Phase 22의 "보류" 판단 중 하나(로그인 세션 필요)가 사용자 지적으로 오판임이 드러나 재검증 후 뒤집혔고, 신규 회사만 상세조회하는 방식으로 요청량 문제까지 해결해 `collect`의 세 번째 소스로 구현. 이용약관 위반 소지는 그대로 남아 사용자가 알고 진행 |
+| 24 | 자소설닷컴 연동 on/off 토글 — `.env`의 `JASOSEOL_ENABLED`(기본값 `true`)로 언제든 끌 수 있게 함. 이용약관 위반 리스크를 부담스러워하는 사용자를 위한 탈출구, 꺼도 사람인/원티드 수집엔 영향 없음. README도 이 시점 기준 실제 동작(폴더명 형식·설정 절)에 맞춰 최종 정리 |
 
 > 각 행의 상세 구현 목록·검증 방법·실측 결과는 `docs/history/PLAN_ARCHIVE.md`의 동일 Phase
 > 번호 섹션(Phase 17 이후는 이 문서에 직접) 참고.
@@ -217,6 +219,35 @@ Phase 22 (3)의 "보류" 판단을 같은 세션에서 뒤집은 경과와 최�
 `tests/test_filters.py` 2개, `tests/test_storage.py` 2개), 기존 테스트 다수 수정
 (`fetch_all()`이 `skip_ids` 인자를 받고 5-튜플을 반환하도록 시그니처가 바뀌어
 `test_dedup.py`/`test_collect.py`의 호출부 전부 갱신), 전체 스위트 242→266개 전부 통과.
+
+Phase 23을 커밋·푸시한 직후, 사용자가 "on/off 토글을 만들고 기본값은 on으로, `.env`/
+`.env.example`에 반영해달라"고 후속 요청해 바로 이어서 Phase 24로 착수했다.
+
+### Phase 24 검증 기록
+
+`jobfind/config.py`에 `_parse_bool(value, default)` 헬퍼와 `JASOSEOL_ENABLED`(기본값
+`True`) 설정을 추가하고, `dedup.fetch_all()`이 `config.JASOSEOL_ENABLED`가 `False`면
+`fetch_jasoseol_all()`을 아예 호출하지 않도록 분기했다(`jasoseol_jobs=[]`,
+`jasoseol_failed=False`로 처리해 반환 타입은 그대로 유지). `.env.example`과 실제 `.env`
+둘 다 파일 맨 위에 "── 수집 소스 ──" 섹션을 새로 만들어 `JASOSEOL_ENABLED=true`와
+이용약관 리스크 안내 주석을 추가했다 — API 키가 아닌 일반 설정 값이라 `CLAUDE.md`
+Security Rules상 Claude가 직접 채울 수 있는 범위다(사용자가 이 작업을 명시적으로 요청함).
+
+실제 인터프리터로 두 경로 모두 검증했다: `JASOSEOL_ENABLED=false`로 설정한 프로세스에서
+`load_config().JASOSEOL_ENABLED`가 `False`로 읽히고, 그 상태로 `dedup.fetch_all()`을
+호출하면 `fetch_jasoseol_all`이 실제로 호출되지 않음을 확인했다(모킹 없이 실제 `dedup`
+모듈 함수를 몽키패치해 호출 여부만 관찰).
+
+이어서 README를 이 시점 기준 실제 동작에 맞춰 정리했다 — Phase 22에서 바뀐
+`cover_letters/<ID>_<회사명>_<직무명>/` 폴더 형식이 README 예시 곳곳(`write` 출력,
+A~Z 흐름, 문제 해결 표)에는 반영되지 않은 채 옛 `<ID>`/`<공고ID>` 표기로 남아있던 걸
+전부 통일했고, 새 `JASOSEOL_ENABLED` 토글을 4-1a 절로 분리해 설정 단계에서 바로 안내하게
+했다(collect 절의 중복 설명은 축약). 옛 `config.ini` 시절 잔재였던 `[relevance]` 오기와
+잘못된 절 번호 참조(§8 → 실제로는 4-1a)도 함께 고쳤다.
+
+테스트 7개 추가(`tests/test_config.py` 5개 — `_parse_bool`/`JASOSEOL_ENABLED` 케이스,
+`tests/test_dedup.py` 2개 — on/off 시 `fetch_jasoseol_all` 호출 여부), 전체 스위트
+266→273개 전부 통과.
 
 ---
 
