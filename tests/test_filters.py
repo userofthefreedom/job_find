@@ -12,7 +12,10 @@ from jobfind.filters import (
 
 
 def _job_stub(**kwargs):
-    base = {"title": "", "keyword": "", "location": "", "experience": "", "job_type": "", "company": ""}
+    base = {
+        "title": "", "keyword": "", "location": "", "experience": "",
+        "job_type": "", "company": "", "source": "",
+    }
     return {**base, **kwargs}
 
 
@@ -84,6 +87,11 @@ def test_filter_location_empty_allows_all(monkeypatch):
     monkeypatch.setattr(config, "LOCATIONS", [])
     assert filter_location(_job_stub(location="제주"))
 
+def test_filter_location_bypassed_for_jasoseol(monkeypatch):
+    # 자소설닷컴은 근무지 필드를 제공하지 않는다 — 필터 설정과 무관하게 항상 통과(Phase 23).
+    monkeypatch.setattr(config, "LOCATIONS", ["서울"])
+    assert filter_location(_job_stub(location="", source="자소설닷컴"))
+
 
 # ── filter_career_type ────────────────────────────────────────────────────────
 
@@ -110,6 +118,12 @@ def test_filter_career_type_both_accepts_specific_range(monkeypatch):
 def test_filter_career_type_both_rejects_blank(monkeypatch):
     monkeypatch.setattr(config, "CAREER_TYPE", ["신입·경력"])
     assert not filter_career_type(_job_stub(experience=""))
+
+def test_filter_career_type_bypassed_for_jasoseol(monkeypatch):
+    # 자소설닷컴은 경력 필드를 제공하지 않는다 — 필터 설정과 무관하게 항상 통과(Phase 23).
+    # (일반 소스의 빈 experience는 위 both_rejects_blank처럼 여전히 거부되는 것과 대비)
+    monkeypatch.setattr(config, "CAREER_TYPE", ["신입·경력"])
+    assert filter_career_type(_job_stub(experience="", source="자소설닷컴"))
 
 def test_filter_career_type_no_match(monkeypatch):
     monkeypatch.setattr(config, "CAREER_TYPE", ["경력"])

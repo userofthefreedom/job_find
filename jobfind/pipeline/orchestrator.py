@@ -8,7 +8,7 @@ from jobfind.config import config
 from jobfind.dart import fetch_company_profile
 from jobfind.pipeline import prompts
 from jobfind.providers.base import get_provider
-from jobfind.storage import extract_field
+from jobfind.storage import cover_letter_folder_name, extract_field
 
 COVER_LETTERS_DIR = "output/cover_letters"
 PROFILE_PATH = "profile.md"
@@ -48,8 +48,7 @@ def _materials_images(materials_dir: Path) -> list[Path]:
     return sorted(p for p in materials_dir.iterdir() if p.suffix.lower() in _IMAGE_EXTS)
 
 
-def _save(job_id: str, name: str, text: str) -> str:
-    job_dir = os.path.join(COVER_LETTERS_DIR, job_id)
+def _save(job_dir: str, name: str, text: str) -> str:
     os.makedirs(job_dir, exist_ok=True)
     path = os.path.join(job_dir, name)
     with open(path, "w", encoding="utf-8") as f:
@@ -67,7 +66,8 @@ def run_for_job(job_id: str, job_text: str) -> dict:
     (필요 시 초안 재작성 → 재평가, 최대 1회)를 실행하고, 각 단계 결과를
     output/cover_letters/<id>/에 저장한다."""
     profile = load_profile()
-    materials_dir = Path(COVER_LETTERS_DIR) / job_id / "materials"
+    job_dir = os.path.join(COVER_LETTERS_DIR, cover_letter_folder_name(job_id, job_text))
+    materials_dir = Path(job_dir) / "materials"
     images = _materials_images(materials_dir)
 
     posting_text = fetch_posting_text(extract_field(job_text, "[링크]"))
@@ -85,35 +85,35 @@ def run_for_job(job_id: str, job_text: str) -> dict:
 
     system, user = prompts.planner_prompt(job_text, profile, materials_dir)
     plan = planner.run(system, user, images=images, extra_tools=PLANNER_RESEARCH_TOOLS)
-    _save(job_id, "plan.md", plan)
+    _save(job_dir, "plan.md", plan)
 
     system, user = prompts.plan_evaluator_prompt(job_text, plan)
     plan_review = plan_evaluator.run(system, user)
-    _save(job_id, "plan_review.md", plan_review)
+    _save(job_dir, "plan_review.md", plan_review)
 
     if _verdict(plan_review) == "NEEDS_REVISION":
         system, user = prompts.planner_revision_prompt(
             job_text, profile, materials_dir, plan, plan_review
         )
         plan = planner.run(system, user, images=images, extra_tools=PLANNER_RESEARCH_TOOLS)
-        _save(job_id, "plan.md", plan)
+        _save(job_dir, "plan.md", plan)
 
     system, user = prompts.writer_prompt(job_text, profile, plan)
     draft = writer.run(system, user)
-    _save(job_id, "draft.md", draft)
+    _save(job_dir, "draft.md", draft)
 
     system, user = prompts.draft_evaluator_prompt(job_text, draft)
     draft_review = draft_evaluator.run(system, user)
-    _save(job_id, "draft_review.md", draft_review)
+    _save(job_dir, "draft_review.md", draft_review)
 
     if _verdict(draft_review) == "NEEDS_REVISION":
         system, user = prompts.writer_revision_prompt(job_text, profile, plan, draft, draft_review)
         draft = writer.run(system, user)
-        _save(job_id, "draft.md", draft)
+        _save(job_dir, "draft.md", draft)
 
         system, user = prompts.draft_evaluator_prompt(job_text, draft)
         draft_review = draft_evaluator.run(system, user)
-        _save(job_id, "draft_review.md", draft_review)
+        _save(job_dir, "draft_review.md", draft_review)
 
     return {
         "id": job_id,

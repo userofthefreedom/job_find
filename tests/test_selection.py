@@ -43,7 +43,8 @@ def test_sync_materials_folders_creates_dirs_and_flags_over_limit(monkeypatch):
         assert count == 5
         assert over_limit is True
         for i in range(5):
-            assert os.path.isdir(os.path.join(cover_dir, f"saramin_{i}", "materials"))
+            # _make_block에는 [회사]가 없어 폴더명이 <ID>_<제목>이 된다 (Phase 22)
+            assert os.path.isdir(os.path.join(cover_dir, f"saramin_{i}_테스트 공고", "materials"))
 
 
 def test_sync_materials_folders_within_limit(monkeypatch):
@@ -62,4 +63,48 @@ def test_sync_materials_folders_within_limit(monkeypatch):
 
         assert count == 1
         assert over_limit is False
-        assert os.path.isdir(os.path.join(cover_dir, "saramin_1", "materials"))
+        assert os.path.isdir(os.path.join(cover_dir, "saramin_1_테스트 공고", "materials"))
+
+
+# ── notes.md 자동 생성 (Phase 22) ───────────────────────────────────────────
+
+def test_sync_materials_folders_creates_notes_template(monkeypatch):
+    import jobfind.selection as selection
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        cover_dir = os.path.join(tmpdir, "cover_letters")
+        monkeypatch.setattr(selection, "COVER_LETTERS_DIR", cover_dir)
+
+        content = _make_block("saramin_1", selected=True)
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        sync_materials_folders(jobs_path)
+
+        notes_path = os.path.join(cover_dir, "saramin_1_테스트 공고", "materials", "notes.md")
+        assert os.path.exists(notes_path)
+        assert "자소설닷컴" in open(notes_path, encoding="utf-8").read()
+
+
+def test_sync_materials_folders_does_not_overwrite_existing_notes(monkeypatch):
+    import jobfind.selection as selection
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        jobs_path = os.path.join(tmpdir, "jobs_all.txt")
+        cover_dir = os.path.join(tmpdir, "cover_letters")
+        monkeypatch.setattr(selection, "COVER_LETTERS_DIR", cover_dir)
+
+        content = _make_block("saramin_1", selected=True)
+        with open(jobs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        materials_dir = os.path.join(cover_dir, "saramin_1_테스트 공고", "materials")
+        os.makedirs(materials_dir)
+        notes_path = os.path.join(materials_dir, "notes.md")
+        with open(notes_path, "w", encoding="utf-8") as f:
+            f.write("사용자가 이미 적어둔 내용")
+
+        sync_materials_folders(jobs_path)
+
+        assert open(notes_path, encoding="utf-8").read() == "사용자가 이미 적어둔 내용"

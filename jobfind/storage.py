@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import re
 from datetime import date, datetime
 
 from jobfind.bundle_detection import is_bundled_posting
@@ -48,6 +49,10 @@ def format_block(job: dict) -> str:
         lines.append(f"[조건]   {cond}")
     if job["keyword"]:
         lines.append(f"[직무]   {job['keyword']}")
+    if job.get("essay_roles"):
+        lines.append(
+            f"[자소서문항] {', '.join(job['essay_roles'])} — 실제 문항 문구는 자소설닷컴에서 직접 확인"
+        )
     if is_bundled_posting(job):
         lines.append(f"[공채후보] {BUNDLE_NOTICE}")
     lines.append(f"[링크]   {job['url']}")
@@ -114,6 +119,13 @@ def is_bundled(block: str) -> bool:
     return any(ln.startswith("[공채후보]") for ln in block.splitlines())
 
 
+def has_essay_roles(block: str) -> bool:
+    """자소설닷컴 소스가 특정 직무에 자소서 고정질문이 있다고 표시한 블록인지 확인한다
+    (Phase 23). 문항 문구 자체는 API에 없어 사용자가 직접 확인해야 하므로, select 단계에서
+    이 안내를 추가로 띄우는 데 쓰인다."""
+    return any(ln.startswith("[자소서문항]") for ln in block.splitlines())
+
+
 def extract_id(block: str) -> str | None:
     for ln in block.splitlines():
         if ln.startswith("[ID]"):
@@ -128,6 +140,25 @@ def extract_field(block: str, label: str) -> str:
             parts = ln.split(None, 1)
             return parts[1].strip() if len(parts) > 1 else ""
     return ""
+
+
+_INVALID_FOLDER_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+
+def _sanitize_folder_part(text: str, max_len: int = 24) -> str:
+    cleaned = _INVALID_FOLDER_CHARS.sub("", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip().rstrip(".")
+    return cleaned[:max_len].strip()
+
+
+def cover_letter_folder_name(job_id: str, block: str) -> str:
+    """자소서 폴더명을 사람이 읽기 쉽게 만든다(Phase 22) — <ID>_<회사명>_<직무명>.
+    ID를 맨 앞에 유지해 정렬·중복방지는 그대로 하면서, 회사명·직무명을 붙여 폴더 탐색기에서도
+    어떤 공고인지 알아볼 수 있게 한다. [회사]/[제목]이 없는 블록(예: 테스트)은 ID만 반환해
+    폴더명이 기존 방식과 동일하게 유지된다."""
+    company = _sanitize_folder_part(extract_field(block, "[회사]"))
+    title = _sanitize_folder_part(extract_field(block, "[제목]"))
+    return "_".join(p for p in (job_id, company, title) if p)
 
 
 def append_dismissed_ids(ids: list[str], path: str) -> None:

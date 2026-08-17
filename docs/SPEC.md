@@ -1,6 +1,6 @@
 # SPEC — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-16 (Phase 21: 자소서 작성 전략 지식 §13-1a 추가) | 기반 문서: PRD.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-17 (Phase 23: 자소설닷컴 수집 소스 §2F 추가) | 기반 문서: PRD.md_
 
 ---
 
@@ -170,9 +170,17 @@ def normalize_wanted(item: dict) -> dict | None: ...
 ### 2D. 통합 수집 함수
 
 ```python
-def fetch_all() -> list[dict]:
-    return deduplicate_cross_platform(fetch_saramin_all(), fetch_wanted_all())
+def fetch_all(skip_ids: set[str]) -> tuple[list[dict], bool, bool, bool, bool]:
+    saramin_jobs, saramin_failed, page_cap_hit = fetch_saramin_all()
+    wanted_jobs, wanted_failed = fetch_wanted_all()
+    jasoseol_jobs, jasoseol_failed = fetch_jasoseol_all(skip_ids)  # Phase 23
+    jobs = deduplicate_cross_platform(saramin_jobs, wanted_jobs) + jasoseol_jobs
+    return jobs, saramin_failed, wanted_failed, page_cap_hit, jasoseol_failed
 ```
+
+자소설닷컴은 사람인/원티드와 교차 중복제거를 하지 않고 그대로 이어붙인다(§2F 참고) —
+`skip_ids`는 `jobfind.py collect`가 계산한 활성/제외 ID 전체를 그대로 넘겨, 자소설닷컴이
+이미 아는 회사의 상세조회를 건너뛰는 데 쓴다(§2F).
 
 ### 2E. 플랫폼 간 중복 제거
 
@@ -203,6 +211,62 @@ def deduplicate_cross_platform(saramin: list[dict], wanted: list[dict]) -> list[
 | 제목 비슷하나 마감일·지역 모두 다름 | 다른 공고로 간주 → 유지 |
 
 > 나머지 케이스(표기 차이가 크거나 제목이 전혀 다를 때)는 X 마커로 수동 처리.
+
+---
+
+## 2F. 자소설닷컴 비공식 API 수집 (Phase 23, `jobfind/collectors/jasoseol.py`)
+
+사람인·원티드는 실제 자소서 문항을 제공하지 않는다는 한계(G15)를 보완하기 위해
+2026-08-17 세션에서 추가한 세 번째 소스. 상세 정책·리스크 판단 배경은 §13-4a 참고 —
+**이용약관 제14조가 명시적으로 자동화 수집을 금지하고 있음을 확인했고, 사용자가 그 사실을
+알고도 진행을 택했다.**
+
+### 엔드포인트 두 개 (둘 다 로그인 없이 200 응답, 2026-08-17 실측)
+
+| 엔드포인트 | 역할 | 비고 |
+|---|---|---|
+| `POST /employment/calendar_list.json`<br>body `{start_time, end_time}` (ISO 날짜) | 회사 단위 채용 이벤트 목록 | 직무명이 없음 — 회사 전체 제목(예: "2026년 8월 신입/경력 채용")만 제공 |
+| `GET /api/v1/employment_companies/<id>?skip_read_log=true` | 회사 하나의 직무 목록(`employments[].field`)과 자소서 문항 유형(`self_introduction_type`: "고정질문"/"자율질문"/없음) | `<id>`는 목록 API의 `employment.id`이자 사이트 URL의 `?ec=` 파라미터와 동일 |
+
+**문항의 실제 문구는 두 엔드포인트 어디에도 없다** — "이 직무는 고정질문형 자소서가
+있다"는 사실과 어느 직무인지까지만 알 수 있고, 문항 원문은 사용자가 `[링크]`를 열어
+직접 확인해야 한다(select 단계에서 안내, §4-6).
+
+### 요청량 절감: 신규 회사만 상세조회 (`fetch_jasoseol_all(skip_ids)`)
+
+```
+fetch_jasoseol_all(skip_ids):
+  1. calendar_list.json으로 오늘~30일 범위의 회사 이벤트 목록을 가져온다 (요청 1건)
+  2. 각 이벤트마다 jasoseol_<id>가 skip_ids(jobs_all.txt/dismissed/archived 전체)에
+     있으면 건너뜀 — 상세조회 자체를 하지 않는다
+  3. 신규 이벤트만 employment_companies/<id>로 상세조회 (요청 1건/회사)
+  4. normalize_jasoseol(event, detail)로 공통 dict 포맷으로 변환
+```
+
+한 달에 회사가 400건 넘게 열려있어(2026-08-17 실측 8월 한 달 463건, 오늘~30일 범위는
+201건) 매일 전체를 상세조회하면 사람인·원티드를 합친 것보다 요청량이 커진다. `skip_ids`
+기준으로 신규 회사만 상세조회하면 이후 실행부턴 그날 새로 나타난 회사 수 정도로 줄어든다
+— 단, **이 기능을 처음 도입한 실행(또는 jobs_all.txt를 새로 시작하는 경우)은 예외적으로
+그 시점의 window 전체가 "신규"라 상세조회가 한 번에 많이 발생한다**(실측: 201건 처리에
+약 18초, 0.09초/건).
+
+### 공통 dict 변환 (`normalize_jasoseol()`)
+
+| 공통 필드 | 값 | 비고 |
+|---|---|---|
+| `id` | `jasoseol_<employment.id>` | |
+| `source` | `"자소설닷컴"` | |
+| `company` | `event.company_group.name` | |
+| `title` | `event.title` (회사 전체 제목, 직무명 아님) | |
+| `location` | `""` (항상 빈 문자열) | API에 근무지 필드가 없음 — §3-2에서 이 소스만 위치 필터를 건너뛰도록 처리 |
+| `experience` | `""` (항상 빈 문자열) | API에 경력 필드가 없음 — 마찬가지로 경력 필터를 건너뜀 |
+| `keyword` | `detail.employments[].field`를 쉼표로 합침 (예: "IT 인프라 운영(M365), SCM, ...") | 직무 기반 키워드 필터(§3-2)가 여기로 동작 — 사람인의 `job_sector` 태그와 같은 패턴 |
+| `deadline` | `event.end_time`의 날짜 부분 | |
+| `essay_roles` (선택) | `self_introduction_type == "고정질문"`인 `field` 목록 | 있을 때만 키 존재 — `storage.format_block()`이 `[자소서문항]` 줄로 반영(§5-1) |
+
+`detail`이 `None`이거나(상세조회 실패) `employments`가 비어 있어도 `job`은 반환한다
+(`keyword`/`essay_roles`가 비어있을 뿐 공고 자체는 유효) — company/title이 없을 때만
+`None`을 반환해 걸러낸다.
 
 ---
 
@@ -267,6 +331,8 @@ def load_config() -> SimpleNamespace:
     직무의 접미사/접두사로 흔히 쓰여, 부분 문자열 매칭 시 오탐이 크게 늘어나기 때문)
 
 지역 필터:
+  source == "자소설닷컴" → 무조건 통과 (Phase 23 — 이 소스는 근무지 필드를 제공하지 않음,
+    아래 참고)
   LOCATIONS 가 비어 있으면 → 통과
   아니면 → location 에 LOCATIONS 중 하나라도 포함 → 통과
 
@@ -275,7 +341,14 @@ def load_config() -> SimpleNamespace:
     필요 시 "경기"처럼 상위 시/도 단위 값을 함께 추가해야 한다. 이 경우 사람인 쪽은 시/군/구
     단위 정보가 있으므로 "경기" 전역(수원·인천 등 포함)이 함께 통과되는 트레이드오프가 있다.
 
+  ※ 자소설닷컴(§2F)은 근무지 필드 자체가 API에 없어 `location`이 항상 빈 문자열이다.
+    사람인/원티드에서 빈 값이 나오는 건 이례적 상황이라 필터에 걸려도 되지만(경력 유형
+    필터의 "both_rejects_blank" 케이스와 동일 원칙), 자소설닷컴은 애초에 이 필드를
+    제공하지 않는 게 정상이라 원칙적으로 다르게 취급해 소스 자체를 필터에서 제외한다.
+
 경력 유형 필터:
+  source == "자소설닷컴" → 무조건 통과 (Phase 23, 위 지역 필터와 동일 이유 — 경력 필드도
+    API에 없음)
   CAREER_TYPE 이 빈 리스트 → 통과
   아니면 → CAREER_TYPE 의 각 값에 대응하는 동등 표현 목록을 전부 모아, 그중 하나라도
     experience 필드에 포함되면 통과(여러 값을 OR로 결합, Phase 6부터 다중 선택 지원)
@@ -428,17 +501,33 @@ process_x_markers(jobs_path, dismissed_path):
 ```
 sync_materials_folders(jobs_path):
   1. jobs_all.txt 를 블록 단위로 파싱
-  2. [자소서] 마커가 있는 블록 식별 → [ID] 줄로 공고 ID 추출
-  3. 각 ID마다 output/cover_letters/<ID>/materials/ 폴더 생성 (이미 있으면 유지)
-  4. 선택 건수와 4개 초과 여부를 반환 (4개 초과 시 콘솔에 경고만 출력, 강제 처리는 하지 않음)
+  2. [자소서] 마커가 있는 블록 식별 → [ID]/[회사]/[제목] 줄로 폴더명 결정 (Phase 22)
+  3. 각 공고마다 output/cover_letters/<폴더명>/materials/ 폴더 생성 (이미 있으면 유지)
+  4. materials/notes.md 가 없으면 빈 템플릿을 자동 생성 (있으면 건드리지 않음, Phase 22)
+  5. 선택 건수와 4개 초과 여부를 반환 (4개 초과 시 콘솔에 경고만 출력, 강제 처리는 하지 않음)
 ```
 
 - `[X]`와 달리 파일에서 블록을 제거하지 않는다 — 사용자가 마커를 다시 바꾸면 선택을 취소할
   수 있어야 하기 때문이다.
 - 최대 4개까지만 자소서를 작성할 수 있다. 5개 이상 선택된 상태로 `jobfind.py write`를 실행하면
   안내 메시지만 출력하고 아무 것도 작성하지 않는다 — 사용자가 마커를 정리한 뒤 다시 실행한다.
-- `materials/` 폴더에는 사용자가 직접 이미지(스크린샷 등)나 `notes.md`(추가 메모)를 넣어둘 수
-  있으며, 자소서 계획 단계(§13)에서 참고한다.
+- `materials/` 폴더에는 사용자가 직접 이미지(스크린샷 등)를 넣어둘 수 있고, `notes.md`(추가
+  메모)는 `select` 실행 시 빈 템플릿으로 자동 생성되며 자소서 계획 단계(§13)에서 참고한다.
+
+### 폴더명 (`storage.cover_letter_folder_name()`, Phase 22)
+
+`output/cover_letters/` 하위 폴더명은 `<ID>_<회사명>_<직무명>` 형식이다(예:
+`saramin_54752005_안랩_IT 인프라 운영(M365)`) — 기존에는 `<ID>`만 썼는데, 폴더가 여러 개
+쌓이면 어떤 공고인지 폴더명만으로 구분이 안 돼 불편하다는 실사용 피드백으로 바꿨다.
+
+- ID를 맨 앞에 유지해 폴더 정렬·식별자 추적은 그대로 가능하다.
+- Windows 파일명에 쓸 수 없는 문자(`\ / : * ? " < > |`)는 제거하고, 회사명·직무명은 각각
+  24자로 자른다(폴더명이 과도하게 길어지는 것 방지).
+- `[회사]`/`[제목]`이 없는 블록(주로 테스트)은 ID만 반환해 이전 동작과 동일하게 유지된다.
+- `select`(`materials/` 준비)와 `write`(`plan`/`draft` 등 저장, `pipeline/orchestrator.py`)가
+  이 함수로 동일한 폴더명을 계산해 쓴다 — 공고 ID 자체는 여전히 `jobs_all.txt`의 유일한
+  식별자이며, 폴더명은 표시용일 뿐이다. 기존에 이미 만들어진 `<ID>`뿐인 폴더는 마이그레이션
+  하지 않고 그대로 둔다(다음 `select`/`write` 실행부터 새 폴더명이 적용됨).
 
 ---
 
@@ -562,7 +651,7 @@ process_status_markers(jobs_path, archived_path):
   `[ ]`(미처리, 기본값) / `[X]`(관심 없음 — [4-5](#4-5-x-마커-처리-명세) 참고) /
   `[자소서]`(자소서 작성 대상으로 선택 — [4-6](#4-6-자소서-선택-마커-명세) 참고)
 - `[ID]` 줄은 **항상 마지막 줄**에 고정 (블록 파싱 시 ID 추출에 사용)
-- `[출처]` 줄: `"사람인"` 또는 `"원티드"` — 항상 출력
+- `[출처]` 줄: `"사람인"` / `"원티드"` / `"자소설닷컴"`(Phase 23) — 항상 출력
 - `[조건]` 줄: `location | job_type | experience` 순, 항목이 빈 문자열이면 해당 항목 생략
 - `[직무]` 줄: `keyword` 필드가 비어 있으면 줄 전체 생략
 - `[마감]` 줄: deadline 변환 실패 시 줄 전체 생략. 값 파싱에 성공하면 `_format_deadline()`이
@@ -575,6 +664,11 @@ process_status_markers(jobs_path, archived_path):
 - `[공채후보]` 줄: `[직무]` 줄 바로 다음(생략됐으면 그 자리), `[링크]` 줄 바로 앞에 시스템이
   자동으로 추가하는 필드(Phase 19, §4-7a 참고). 제목에 복수 직무 묶음 신호가 있을 때만
   추가되고, 없으면 줄 전체 생략
+- `[자소서문항]` 줄: `[직무]` 줄 바로 다음(`[공채후보]`보다 앞), `[링크]` 줄 바로 앞에
+  시스템이 자동으로 추가하는 필드(Phase 23). `[출처] 자소설닷컴` 공고 중 자소서 고정질문이
+  있는 직무가 있을 때만 추가되고(`job["essay_roles"]`), 해당 직무명 목록과 "실제 문항
+  문구는 자소설닷컴에서 직접 확인"이라는 안내를 담는다 — 문항 원문 자체는 포함하지 않는다
+  (API에 없음, §2F 참고)
 - 구분선: `═` 48개
 
 `[공채후보]` 예시(제목에 "공채" 신호가 있는 경우):
@@ -646,10 +740,11 @@ wanted_12345
 
 `[경고]` 구간은 다음 중 하나라도 해당하면 붙는다(§6 참고):
 
-- 사람인 또는 원티드의 **첫 페이지/첫 요청 자체**가 실패해 0건이 된 경우 (오늘 신규 공고가
-  실제로 없는 정상적인 0건과는 `fetch_saramin_all()`/`fetch_wanted_all()`이 반환하는
-  `request_failed` 플래그로 구분한다 — 첫 요청이 살아있는데 두 번째 페이지부터 실패하는
-  경우는 경고 대상이 아니다, 이미 얻은 결과는 그대로 쓴다)
+- 사람인·원티드·자소설닷컴(Phase 23) 중 하나의 **첫 페이지/첫 요청 자체**가 실패해 0건이
+  된 경우 (오늘 신규 공고가 실제로 없는 정상적인 0건과는 `fetch_saramin_all()`/
+  `fetch_wanted_all()`/`fetch_jasoseol_all()`이 반환하는 `request_failed` 플래그로
+  구분한다 — 첫 요청이 살아있는데 두 번째 페이지부터 실패하는 경우는 경고 대상이 아니다,
+  이미 얻은 결과는 그대로 쓴다)
 - 사람인이 10페이지(최대 400건)를 매 페이지 40건씩 꽉 채운 채 끝난 경우(`page_cap_hit`) —
   더 많은 공고가 있을 수 있다는 뜻이며, 상한 자체를 올릴지는 실행 시간 제약과의
   트레이드오프라 자동으로 처리하지 않고 경고만 남긴다.
@@ -664,12 +759,13 @@ wanted_12345
 | 사람인 HTML 파싱 오류 (AttributeError 등) | 해당 공고 건너뜀, 경고 출력 후 계속 |
 | 원티드 API HTTP 오류 | 1회 재시도 후 오류 메시지 출력, 해당 소스 건너뛰고 계속 |
 | 원티드 API 응답 파싱 실패 (KeyError 등) | 해당 공고 건너뜀, 경고 출력 후 계속 |
+| 자소설닷컴 목록/상세 API HTTP 오류(Phase 23) | 1회 재시도 후 오류 메시지 출력, 해당 소스(목록 실패 시 전체, 상세 실패 시 해당 회사만) 건너뛰고 계속 |
 | `output/` 디렉토리 없음 | 자동 생성 |
-| 두 소스 모두 실패 | 0건 처리 후 요약 출력, 정상 종료 |
-| 사람인/원티드 첫 요청 자체 실패(§5-3) | 콘솔 + `run_log.txt`에 `[경고]`로 강조(Phase 5) — 조용히 0건 처리되던 것과 구분 |
+| 세 소스 모두 실패 | 0건 처리 후 요약 출력, 정상 종료 |
+| 사람인/원티드/자소설닷컴 첫 요청 자체 실패(§5-3) | 콘솔 + `run_log.txt`에 `[경고]`로 강조(Phase 5, Phase 23) — 조용히 0건 처리되던 것과 구분 |
 | 사람인 페이지 상한 도달(§5-3) | 콘솔 + `run_log.txt`에 `[경고]`로 강조(Phase 5) |
 
-> 어느 한 소스가 실패해도 나머지 소스 결과는 정상 처리한다.
+> 소스 하나가 실패해도 나머지 소스 결과는 정상 처리한다.
 
 ---
 
@@ -684,8 +780,9 @@ jobfind.py collect
  ├─ process_status_markers()       → [상태]=탈락 블록 제거 + archived_ids.txt 기록,
  │                                     나머지 상태는 집계해 콘솔에 출력 (§4-7)
  ├─ skip_ids = active | dismissed | archived
- ├─ jobs, saramin_failed, wanted_failed, page_cap_hit = fetch_all()
- │                                   → fetch_saramin_all() + fetch_wanted_all() + dedup (§5-3)
+ ├─ jobs, saramin_failed, wanted_failed, page_cap_hit, jasoseol_failed = fetch_all(skip_ids)
+ │                                   → fetch_saramin_all() + fetch_wanted_all() + dedup
+ │                                     + fetch_jasoseol_all(skip_ids) (§2F, §5-3)
  ├─ filtered = filter_jobs(jobs)   → .env FILTER_* 조건 적용 (§3)
  ├─ new_jobs = filtered - skip_ids
  ├─ write_jobs(new_jobs)           → jobs_all.txt 에 append
@@ -706,7 +803,8 @@ jobfind.py add <url>
  └─ write_jobs([job])              → jobs_all.txt 에 append
 
 jobfind.py select
- └─ sync_materials_folders()       → [자소서] 마커 스캔, materials/ 폴더 준비 (§4-6)
+ ├─ sync_materials_folders()       → [자소서] 마커 스캔, materials/ 폴더 + notes.md 템플릿 준비 (§4-6)
+ └─ [공채후보]/[자소서문항] 블록마다 콘솔에 추가 안내 출력 (§4-7a, §2F)
 
 jobfind.py write
  └─ 선택된 공고(최대 4개)마다 run_for_job() 실행 → 자소서 파이프라인 (§13)
@@ -1119,22 +1217,71 @@ Phase 20까지의 프롬프트는 "계획을 세워라"/"자연스럽게 써라"
 
 ### 13-4. materials/ 이미지 및 `notes.md`
 
-`output/cover_letters/<job_id>/materials/`의 이미지 파일(`.png/.jpg/.jpeg/.webp/.gif`)은
+`output/cover_letters/<폴더명>/materials/`의 이미지 파일(`.png/.jpg/.jpeg/.webp/.gif`)은
 `planner`(및 계획 재작성) 호출에만 전달한다 — 계획 산출물이 이미지에서 뽑아낸 정보를 텍스트로
-흡수하므로 이후 단계(평가/작성)는 원본 이미지가 다시 필요하지 않다.
+흡수하므로 이후 단계(평가/작성)는 원본 이미지가 다시 필요하지 않다. 폴더명 형식은 §4-6
+`cover_letter_folder_name()` 참고.
+
+`notes.md`는 `jobfind.py select` 실행 시 `selection._ensure_notes_template()`이 없을
+때만 빈 템플릿으로 자동 생성한다(Phase 22 — 이전에는 사용자가 직접 파일을 만들어야 했는데,
+존재를 몰라 안 채우는 경우가 실사용 중 확인돼 자동 생성으로 바꿨다. 이미 있으면 덮어쓰지
+않아 사용자가 채운 내용은 안전하다). 템플릿에는 "사람인·원티드는 대부분 실제 문항을
+제공하지 않으니, 지원 회사가 자소설닷컴(jasoseol.com) 등에서 문항을 별도 공개하고 있다면
+**직접 브라우저로 확인해** 옮겨 적으라"는 안내를 포함한다 — Phase 23부터는 자소설닷컴
+공고가 자동 수집되고 `[자소서문항]` 줄로 문항 유무까지 표시되지만(§2F), 문항 원문 자체는
+API에 없어 이 수동 확인·기입 절차는 여전히 필요하다(아래 §13-4a 참고).
 
 같은 폴더의 `notes.md`가 있으면 `_read_notes()`가 읽어 `planner_prompt`/
 `planner_revision_prompt`의 user 프롬프트에 포함한다(Phase 18부터
 `[사용자 제공 정보 — 실제 자소서 문항이 포함되어 있을 수 있음, 있다면 최우선으로 따를 것]`
-라벨 사용). 이 채널은 실제 자소서 문항을 반영하는 유일한 경로다 — 사람인/원티드 어느
-소스도 지원서 제출 폼의 실제 문항(글자수 제한 포함)을 API/스크래핑으로 얻을 수 없기
-때문이다(OQ7). system 프롬프트에도 "`notes.md`에 실제 문항이 있으면 그 문항 순서·표현을
-그대로 따르고, 없을 때만 표준 4문항 구성으로 가정하라"는 지시를 명시해, planner가 계획
-단계에서 실제 문항을 우선 반영하도록 하고, `writer_prompt`도 "계획에 이미 실제 문항 기반
-구성이 있으면 그대로 따르고, 계획에도 없을 때만 표준 구성으로 가정"하도록 조건화했다 —
-이전에는 무조건 표준 4문항을 가정해, `notes.md`에 실제 문항을 적어둬도 반영되지 않는
-문제가 있었다. `jobfind.py select` 실행 시 각 공고의 `materials/notes.md` 경로와 함께
-이 안내를 콘솔에 출력한다.
+라벨 사용). 이 채널은 실제 자소서 문항 원문을 반영하는 유일한 경로다 — 사람인/원티드는
+지원서 제출 폼의 실제 문항(글자수 제한 포함)을 API/스크래핑으로 얻을 수 없고, 자소설닷컴도
+"문항이 있다는 사실"만 알려줄 뿐 문구 자체는 제공하지 않기 때문이다(OQ7, 부분 해소).
+system 프롬프트에도 "`notes.md`에 실제 문항이 있으면 그 문항 순서·표현을 그대로 따르고,
+없을 때만 표준 4문항 구성으로 가정하라"는 지시를 명시해, planner가 계획 단계에서 실제
+문항을 우선 반영하도록 하고, `writer_prompt`도 "계획에 이미 실제 문항 기반 구성이 있으면
+그대로 따르고, 계획에도 없을 때만 표준 구성으로 가정"하도록 조건화했다 — 이전에는 무조건
+표준 4문항을 가정해, `notes.md`에 실제 문항을 적어둬도 반영되지 않는 문제가 있었다.
+`jobfind.py select` 실행 시 각 공고의 `materials/notes.md` 경로와 함께 이 안내를 콘솔에
+출력하고, `[자소서문항]` 줄이 있는 블록에는 자소설닷컴에서 직접 확인하라는 안내를 한 줄
+더 출력한다.
+
+### 13-4a. 자소설닷컴 연동 — 최초 보류 후 재검토·구현 (2026-08-17)
+
+같은 세션 안에서 판단이 한 번 뒤집혔다. 시행착오를 그대로 남긴다.
+
+**1차 판단(보류)**: 실사용 중 "사람인·원티드에 올라오는 공고는 대부분 실제 자소서 문항이
+없고, 자소설닷컴에는 문항이 명시된 공고가 많다"는 문제 제기가 있어 `collect`의 세 번째
+수집 소스로 추가하는 안을 검토했다. 접속해 확인한 결과 두 가지 이유로 처음엔 보류했다:
+(1) 이용약관 제14조(회원의 의무) 3항 9호가 "허가없이 자동화된 수단(수집로봇·스파이더·
+스크래퍼)"으로 콘텐츠·정보를 수집·접근하는 행위를 명시 금지하고, 제1조에서 이 약관이
+회원·비회원 모두에게 적용됨을 못박고 있음. (2) 로그인된 브라우저에서 페이지 내부 데이터
+(`__NEXT_DATA__`)를 읽으려 하자 Claude in Chrome 확장이 "쿠키/세션 정보 포함"으로 자동
+차단해, 로그인 세션이 필요한 비공개 API로 오판함.
+
+**사용자 재반박과 재검증**: 사용자가 "내가 로그아웃 상태에서도 `/recruit`를 정상적으로
+쓰고 있다"고 지적했다. 실제로 로그아웃 탭에서 재확인한 결과 (2)는 **틀린 판단이었다** —
+차단은 익명 방문자에게도 붙는 애널리틱스용 세션/디바이스 ID를 인증 세션으로 오인한
+결과였고, 실제로는 `POST /employment/calendar_list.json`과
+`GET /api/v1/employment_companies/<id>?skip_read_log=true` 둘 다 로그인 없이 200을
+반환했다(쿠키 없이 `fetch(..., {credentials:'omit'})`로 직접 검증). (1)의 ToS 명시 금지는
+로그인 여부와 무관하게 그대로 유효하므로 사용자에게 다시 알렸고, **사용자가 리스크를 알고도
+자동 수집 구현을 명시적으로 선택**했다 — 이 결정은 사용자 책임이며, 팀/코드는 이용약관
+위반 소지를 숨기지 않고 문서화하는 것으로 대응한다.
+
+**설계 제약과 해결**: 목록 API에는 직무명이 없고(회사 단위 제목만) 상세 API는 회사마다
+별도 호출이 필요한데, 한 달에 400곳 넘게 열려있어(§2F) 매일 전체를 상세조회하면
+사람인·원티드보다 요청량이 커진다는 문제가 있었다. 사용자가 재차 지적("회사명만으로 직무를
+판단할 수 없으니, 상세조회 없이는 필터링이 무의미하다")한 끝에, 기존 `skip_ids`(활성/
+탈락/보관 ID 전체) 패턴을 재사용해 **신규 회사만 상세조회**하는 방식으로 확정했다(§2F).
+최초 실행만 그 달 전체를 상세조회하는 일회성 비용이 발생한다는 점을 사용자에게 명시하고
+동의를 받았다.
+
+**최종 구현**: `jobfind/collectors/jasoseol.py`(G15, PRD §6-1). 실제 API로 e2e 검증함
+(2026-08-17, 사용자 실제 `.env` 필터 조건 그대로 적용) — 오늘~30일 범위 201개 회사를
+18초에 조회, 사용자의 `FILTER_KEYWORDS`(PM/PO/기획 등)로 걸러 6건이 최종 통과했고 그중
+`[직무] PM` 등 태그가 정상 반영됨을 확인했다. 자소설닷컴이 향후 이용 허가를 명시적으로
+제공하면 이 리스크 판단을 재검토할 수 있다.
 
 ### 13-5. 기업 개황 보강 (`jobfind/dart.py`)
 

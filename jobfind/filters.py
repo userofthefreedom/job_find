@@ -29,14 +29,19 @@ def filter_keywords(job: dict) -> bool:
     return not any(kw.lower() in exclude_text for kw in config.EXCLUDE_KEYWORDS)
 
 
+_NO_LOCATION_EXPERIENCE_SOURCE = "자소설닷컴"
+
+
 def filter_location(job: dict) -> bool:
-    if not config.LOCATIONS:
+    # 자소설닷컴은 근무지 필드를 아예 제공하지 않는다(사람인/원티드에서 빈 값이 나오는
+    # 이례적 상황과 다름 — 소스 자체의 알려진 한계). 소스 단위로 이 필터만 건너뛴다.
+    if not config.LOCATIONS or job["source"] == _NO_LOCATION_EXPERIENCE_SOURCE:
         return True
     return any(loc in job["location"] for loc in config.LOCATIONS)
 
 
 def filter_career_type(job: dict) -> bool:
-    if not config.CAREER_TYPE:
+    if not config.CAREER_TYPE or job["source"] == _NO_LOCATION_EXPERIENCE_SOURCE:
         return True
     return any(
         e in job["experience"]

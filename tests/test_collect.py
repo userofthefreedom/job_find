@@ -25,7 +25,7 @@ def _run_collect(monkeypatch, tmpdir, fetch_result, filtered=None, jobs_file_con
     monkeypatch.setattr(cli, "DISMISSED_PATH", dismissed_path)
     monkeypatch.setattr(cli, "ARCHIVED_PATH", archived_path)
     monkeypatch.setattr(cli, "RUN_LOG_PATH", run_log_path)
-    monkeypatch.setattr(cli, "fetch_all", lambda: fetch_result)
+    monkeypatch.setattr(cli, "fetch_all", lambda skip_ids: fetch_result)
     jobs = fetch_result[0]
     monkeypatch.setattr(cli, "filter_jobs", lambda js: filtered if filtered is not None else js)
 
@@ -35,7 +35,7 @@ def _run_collect(monkeypatch, tmpdir, fetch_result, filtered=None, jobs_file_con
 
 def test_collect_no_warnings_on_normal_run(monkeypatch, capsys):
     with tempfile.TemporaryDirectory() as tmpdir:
-        run_log_path, _, _ = _run_collect(monkeypatch, tmpdir, ([_job("saramin_1")], False, False, False))
+        run_log_path, _, _ = _run_collect(monkeypatch, tmpdir, ([_job("saramin_1")], False, False, False, False))
         out = capsys.readouterr().out
         assert "[경고]" not in out
         assert "[경고]" not in open(run_log_path, encoding="utf-8").read()
@@ -43,7 +43,7 @@ def test_collect_no_warnings_on_normal_run(monkeypatch, capsys):
 
 def test_collect_warns_on_saramin_failure(monkeypatch, capsys):
     with tempfile.TemporaryDirectory() as tmpdir:
-        run_log_path, _, _ = _run_collect(monkeypatch, tmpdir, ([], True, False, False))
+        run_log_path, _, _ = _run_collect(monkeypatch, tmpdir, ([], True, False, False, False))
         out = capsys.readouterr().out
         assert "[경고]" in out
         assert "사람인 소스 전체 실패" in out
@@ -52,20 +52,26 @@ def test_collect_warns_on_saramin_failure(monkeypatch, capsys):
 
 def test_collect_warns_on_wanted_failure(monkeypatch, capsys):
     with tempfile.TemporaryDirectory() as tmpdir:
-        _run_collect(monkeypatch, tmpdir, ([], False, True, False))
+        _run_collect(monkeypatch, tmpdir, ([], False, True, False, False))
         assert "원티드 소스 전체 실패" in capsys.readouterr().out
 
 
 def test_collect_warns_on_page_cap_hit(monkeypatch, capsys):
     with tempfile.TemporaryDirectory() as tmpdir:
-        _run_collect(monkeypatch, tmpdir, ([], False, False, True))
+        _run_collect(monkeypatch, tmpdir, ([], False, False, True, False))
         assert "페이지 상한" in capsys.readouterr().out
+
+
+def test_collect_warns_on_jasoseol_failure(monkeypatch, capsys):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _run_collect(monkeypatch, tmpdir, ([], False, False, False, True))
+        assert "자소설닷컴 소스 전체 실패" in capsys.readouterr().out
 
 
 def test_collect_appends_to_run_log_across_runs(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
-        run_log_path, _, _ = _run_collect(monkeypatch, tmpdir, ([], False, False, False))
-        _run_collect(monkeypatch, tmpdir, ([], False, False, False))
+        run_log_path, _, _ = _run_collect(monkeypatch, tmpdir, ([], False, False, False, False))
+        _run_collect(monkeypatch, tmpdir, ([], False, False, False, False))
         lines = open(run_log_path, encoding="utf-8").read().splitlines()
         assert len(lines) == 2
 
@@ -87,7 +93,7 @@ def test_collect_prints_status_summary(monkeypatch, capsys):
     with tempfile.TemporaryDirectory() as tmpdir:
         content = _status_block("saramin_1", "지원함") + _status_block("wanted_2", "면접")
         _run_collect(
-            monkeypatch, tmpdir, ([], False, False, False), jobs_file_content=content,
+            monkeypatch, tmpdir, ([], False, False, False, False), jobs_file_content=content,
         )
         out = capsys.readouterr().out
         assert "[지원 현황]" in out
@@ -99,7 +105,7 @@ def test_collect_archives_rejected_and_excludes_from_recollection(monkeypatch, c
     with tempfile.TemporaryDirectory() as tmpdir:
         content = _status_block("saramin_1", "탈락")
         run_log_path, jobs_path, archived_path = _run_collect(
-            monkeypatch, tmpdir, ([_job("saramin_1")], False, False, False),
+            monkeypatch, tmpdir, ([_job("saramin_1")], False, False, False, False),
             jobs_file_content=content,
         )
         # 탈락 처리로 제거된 뒤, 같은 실행에서 fetch_all이 같은 ID를 다시 돌려줘도

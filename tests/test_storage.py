@@ -6,9 +6,11 @@ from datetime import date, timedelta
 from jobfind.storage import (
     DIVIDER,
     _format_deadline,
+    cover_letter_folder_name,
     extract_id,
     find_block,
     format_block,
+    has_essay_roles,
     is_bundled,
     is_dismissed,
     is_selected,
@@ -94,6 +96,27 @@ def test_format_block_flags_bundled_title():
 def test_format_block_omits_bundle_notice_for_single_role():
     block = format_block(_JOB)
     assert "[공채후보]" not in block
+
+
+# ── [자소서문항] 표시 (Phase 23: 자소설닷컴 연동) ────────────────────────────
+
+def test_format_block_shows_essay_roles_when_present():
+    job = {**_JOB, "essay_roles": ["IT 인프라 운영(M365)", "SCM"]}
+    block = format_block(job)
+    assert "[자소서문항]" in block
+    assert "IT 인프라 운영(M365)" in block
+    assert "SCM" in block
+
+def test_format_block_omits_essay_roles_line_when_absent():
+    block = format_block(_JOB)
+    assert "[자소서문항]" not in block
+
+def test_has_essay_roles_true():
+    job = {**_JOB, "essay_roles": ["SCM"]}
+    assert has_essay_roles(format_block(job))
+
+def test_has_essay_roles_false():
+    assert not has_essay_roles(format_block(_JOB))
 
 def test_is_bundled_true():
     block = _make_block("saramin_1").replace(
@@ -344,6 +367,27 @@ def test_process_status_markers_rejected_without_id_preserved():
         assert counts == {"탈락": 1}  # ID가 없어 제거하지 못하고 집계만 됨
         assert "손상된 블록" in open(jobs_path, encoding="utf-8").read()
         assert not os.path.exists(archived_path)
+
+
+# ── cover_letter_folder_name (Phase 22: 사람이 읽기 쉬운 폴더명) ────────────────
+
+def test_cover_letter_folder_name_includes_company_and_title():
+    block = f"{DIVIDER}\n[회사]   안랩\n[제목]   IT 인프라 운영(M365)\n{DIVIDER}\n"
+    assert cover_letter_folder_name("saramin_1", block) == "saramin_1_안랩_IT 인프라 운영(M365)"
+
+def test_cover_letter_folder_name_falls_back_to_id_when_no_fields():
+    assert cover_letter_folder_name("saramin_1", "공고 텍스트") == "saramin_1"
+
+def test_cover_letter_folder_name_strips_invalid_windows_chars():
+    block = f"{DIVIDER}\n[회사]   A/B:C\n[제목]   D*E?F\n{DIVIDER}\n"
+    folder = cover_letter_folder_name("saramin_1", block)
+    assert folder == "saramin_1_ABC_DEF"
+
+def test_cover_letter_folder_name_truncates_long_parts():
+    long_title = "아주 긴 직무명" * 10
+    block = f"{DIVIDER}\n[제목]   {long_title}\n{DIVIDER}\n"
+    folder = cover_letter_folder_name("saramin_1", block)
+    assert len(folder) < len(long_title)
 
 
 # ── load_archived_ids ─────────────────────────────────────────────────────────

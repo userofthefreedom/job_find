@@ -13,8 +13,10 @@ from jobfind.relevance import evaluate_relevance
 from jobfind.selection import MAX_SELECTED, selected_ids, sync_materials_folders
 from jobfind.storage import (
     append_run_log,
+    cover_letter_folder_name,
     ensure_output_dir,
     find_block,
+    has_essay_roles,
     is_bundled,
     load_active_ids,
     load_archived_ids,
@@ -56,7 +58,7 @@ def collect() -> None:
         | load_dismissed_ids(DISMISSED_PATH)
         | load_archived_ids(ARCHIVED_PATH)
     )
-    jobs, saramin_failed, wanted_failed, page_cap_hit = fetch_all()
+    jobs, saramin_failed, wanted_failed, page_cap_hit, jasoseol_failed = fetch_all(skip_ids)
     filtered = filter_jobs(jobs)
     new_jobs = [j for j in filtered if j["id"] not in skip_ids]
     write_jobs(new_jobs, JOBS_PATH)
@@ -66,6 +68,8 @@ def collect() -> None:
         warnings.append("사람인 소스 전체 실패(요청 오류로 0건)")
     if wanted_failed:
         warnings.append("원티드 소스 전체 실패(요청 오류로 0건)")
+    if jasoseol_failed:
+        warnings.append("자소설닷컴 소스 전체 실패(요청 오류로 0건)")
     if page_cap_hit:
         warnings.append("사람인 페이지 상한(10페이지) 도달 — 더 많은 공고가 있을 수 있음")
 
@@ -129,12 +133,17 @@ def select() -> None:
         print(f"[경고] 자소서는 최대 4개까지만 작성할 수 있습니다 (현재 {count}건 선택됨) "
               "— 초과분의 [자소서] 마커를 해제해주세요")
     for job_id in selected_ids(JOBS_PATH):
-        print(f"  - output/cover_letters/{job_id}/materials/notes.md — 실제 자소서 문항이 있다면 "
-              "여기에 붙여넣어 두세요 (문항 제목·글자수 제한까지 포함하면 write 단계에서 그대로 반영됩니다)")
         block = find_block(JOBS_PATH, job_id)
+        folder = cover_letter_folder_name(job_id, block) if block else job_id
+        print(f"  - output/cover_letters/{folder}/materials/notes.md — 자동 생성됨(빈 템플릿). "
+              "실제 자소서 문항을 확인했다면(자소설닷컴 등) 문항 제목·글자수 제한까지 채워 넣으세요 "
+              "— write 단계에서 그대로 반영됩니다")
         if block and is_bundled(block):
             print(f"    [공채후보] 복수 직무를 묶어 모집하는 공고일 수 있습니다 — notes.md에 "
                   "실제 지원하려는 세부 직무를 적어두면 write 단계에서 반영됩니다 (미기재 시 표준 구성으로 작성됨)")
+        if block and has_essay_roles(block):
+            print("    [자소서문항] 자소설닷컴에 이 공고의 자소서 고정질문이 등록돼 있습니다 — "
+                  "문항 실제 문구는 API로 확인 안 되니 링크를 열어 직접 확인 후 notes.md에 옮겨 적으세요")
 
 
 def write() -> None:
@@ -163,7 +172,8 @@ def write() -> None:
             print(f"  실패: {e}")
             failed.append(job_id)
             continue
-        print(f"  완료: output/cover_letters/{job_id}/draft.md")
+        folder = cover_letter_folder_name(job_id, block)
+        print(f"  완료: output/cover_letters/{folder}/draft.md")
         succeeded.append(job_id)
 
     print(f"자소서 작성 완료 — 성공 {len(succeeded)}건, 실패 {len(failed)}건. "
