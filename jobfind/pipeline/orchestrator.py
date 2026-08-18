@@ -3,6 +3,9 @@ import os
 import re
 from pathlib import Path
 
+import requests
+
+from jobfind.collectors.saramin import fetch_saramin_images
 from jobfind.collectors.wanted import fetch_wanted_description
 from jobfind.config import config
 from jobfind.dart import fetch_company_profile
@@ -13,6 +16,7 @@ from jobfind.storage import cover_letter_folder_name, extract_field
 COVER_LETTERS_DIR = "output/cover_letters"
 PROFILE_PATH = "profile.md"
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 # planner가 회사 리서치(뉴스·홈페이지)를 스스로 검색해 계획에 반영할 수 있게 열어주는 툴.
 # claude_cli에서만 실제로 동작한다 — api:*는 --allowedTools 개념이 없어 무시된다.
 PLANNER_RESEARCH_TOOLS = ["WebSearch", "WebFetch"]
@@ -48,6 +52,26 @@ def _materials_images(materials_dir: Path) -> list[Path]:
     return sorted(p for p in materials_dir.iterdir() if p.suffix.lower() in _IMAGE_EXTS)
 
 
+def _download_saramin_images(rec_idx: str, materials_dir: Path) -> None:
+    """사람인 상세 본문 이미지를 materials_dir에 내려받는다(OQ5). 사람인 공고는 상세
+    본문이 이미지로만 존재해 fetch_posting_text가 텍스트를 못 가져오는데, planner는
+    이미 materials_dir 이미지를 참고하므로 여기 받아두면 비전 지원 provider가 자격요건을
+    직접 읽을 수 있다. 파일이 이미 있으면 다시 받지 않아 write를 여러 번 실행해도
+    매번 새로 다운로드하지 않는다."""
+    materials_dir.mkdir(parents=True, exist_ok=True)
+    for i, url in enumerate(fetch_saramin_images(rec_idx)):
+        ext = os.path.splitext(url.split("?")[0])[1] or ".png"
+        path = materials_dir / f"saramin_detail_{i}{ext}"
+        if path.exists():
+            continue
+        try:
+            resp = requests.get(url, headers={"User-Agent": _UA}, timeout=15)
+            resp.raise_for_status()
+            path.write_bytes(resp.content)
+        except requests.RequestException:
+            continue
+
+
 def _save(job_dir: str, name: str, text: str) -> str:
     os.makedirs(job_dir, exist_ok=True)
     path = os.path.join(job_dir, name)
@@ -68,11 +92,16 @@ def run_for_job(job_id: str, job_text: str) -> dict:
     profile = load_profile()
     job_dir = os.path.join(COVER_LETTERS_DIR, cover_letter_folder_name(job_id, job_text))
     materials_dir = Path(job_dir) / "materials"
-    images = _materials_images(materials_dir)
 
-    posting_text = fetch_posting_text(extract_field(job_text, "[링크]"))
+    url = extract_field(job_text, "[링크]")
+    posting_text = fetch_posting_text(url)
     if posting_text:
         job_text = f"{job_text}\n\n[공고 상세 설명]\n{posting_text}"
+
+    m = re.search(r"saramin\.co\.kr.*rec_idx=(\d+)", url)
+    if m:
+        _download_saramin_images(m.group(1), materials_dir)
+    images = _materials_images(materials_dir)
 
     company_profile = fetch_company_profile(extract_field(job_text, "[회사]"))
     if company_profile:

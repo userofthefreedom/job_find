@@ -211,3 +211,61 @@ def test_run_for_job_skips_enrichment_when_fetch_fails(monkeypatch, tmp_path):
 
     for call in fake.calls:
         assert "[공고 상세 설명]" not in call["user"]
+
+
+class _FakeResponse:
+    def __init__(self, content: bytes):
+        self.content = content
+
+    def raise_for_status(self):
+        pass
+
+
+def test_run_for_job_downloads_saramin_detail_images(monkeypatch, tmp_path):
+    fake, cover_dir = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])
+    monkeypatch.setattr(
+        orch, "fetch_saramin_images", lambda rec_idx: ["https://img.saramin/a.png", "https://img.saramin/b.jpg"]
+    )
+    monkeypatch.setattr(orch.requests, "get", lambda url, **kw: _FakeResponse(url.encode()))
+
+    job_text = "[링크]   https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=12345"
+    orch.run_for_job("saramin_12345", job_text)
+
+    materials_dir = cover_dir / "saramin_12345" / "materials"
+    downloaded = sorted(materials_dir.glob("saramin_detail_*"))
+    assert [p.name for p in downloaded] == ["saramin_detail_0.png", "saramin_detail_1.jpg"]
+
+    planner_call = fake.calls[0]
+    assert planner_call["images"] == downloaded
+
+
+def test_run_for_job_skips_saramin_download_for_non_saramin_url(monkeypatch, tmp_path):
+    fake, cover_dir = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])
+    called = []
+    monkeypatch.setattr(orch, "fetch_saramin_images", lambda rec_idx: called.append(rec_idx) or [])
+
+    job_text = "[링크]   https://www.wanted.co.kr/wd/999"
+    orch.run_for_job("wanted_999", job_text)
+
+    assert called == []
+    materials_dir = cover_dir / "wanted_999" / "materials"
+    assert not list(materials_dir.glob("saramin_detail_*")) if materials_dir.exists() else True
+
+
+def test_run_for_job_does_not_redownload_existing_saramin_images(monkeypatch, tmp_path):
+    fake, cover_dir = _setup(monkeypatch, tmp_path, responses=["계획", "OK", "초안", "OK"])
+    materials_dir = cover_dir / "saramin_12345" / "materials"
+    materials_dir.mkdir(parents=True)
+    (materials_dir / "saramin_detail_0.png").write_bytes(b"already downloaded")
+
+    monkeypatch.setattr(orch, "fetch_saramin_images", lambda rec_idx: ["https://img.saramin/a.png"])
+    get_calls = []
+    monkeypatch.setattr(
+        orch.requests, "get", lambda url, **kw: get_calls.append(url) or _FakeResponse(b"new")
+    )
+
+    job_text = "[링크]   https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=12345"
+    orch.run_for_job("saramin_12345", job_text)
+
+    assert get_calls == []
+    assert (materials_dir / "saramin_detail_0.png").read_bytes() == b"already downloaded"

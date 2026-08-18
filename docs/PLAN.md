@@ -1,6 +1,6 @@
 # PLAN — 채용 공고 수집·관련성 랭킹·자소서 초안 작성 도구
 
-_작성일: 2026-06-30 | 최종 수정: 2026-08-17 (Phase 24 완료 — 미착수 Phase 없음) | 기반 문서: PRD.md, SPEC.md_
+_작성일: 2026-06-30 | 최종 수정: 2026-08-18 (Phase 25 완료 — 미착수 Phase 없음) | 기반 문서: PRD.md, SPEC.md_
 
 ---
 
@@ -26,8 +26,9 @@ Phase 5(안정성/신뢰성)·6(필터 고도화)·7(지원 상태 추적)까지
 DART 연동 실키 검증), Phase 21(자소서 작성 전략 지식 반영)까지 완료했다. 2026-08-17엔
 Phase 22(notes.md 자동 생성 + 폴더명 개선)에 이어, 같은 세션에서 Phase 23(자소설닷컴 연동
 — Phase 22의 "보류" 판단을 재검증 끝에 뒤집고 실제 구현), Phase 24(자소설닷컴 on/off 토글
-+ README 최종 정리)까지 마쳐, 이 시점 기준 미착수 Phase가 없다. 새로운 개선 아이디어가
-생기면 이 문서에 새 Phase로 추가해 이어간다.
++ README 최종 정리)까지 마쳤다. 2026-08-18엔 남아 있던 OQ5(사람인 상세 이미지를 자소서
+파이프라인에 반영)를 Phase 25로 착수해 마무리했다 — 이 시점 기준 미착수 Phase가 없다.
+새로운 개선 아이디어가 생기면 이 문서에 새 Phase로 추가해 이어간다.
 
 ## 완료 Phase 요약
 
@@ -54,6 +55,7 @@ Phase 22(notes.md 자동 생성 + 폴더명 개선)에 이어, 같은 세션에�
 | 22 | 실사용 불편 3건 개선 — (1) `select` 시 `materials/notes.md` 빈 템플릿 자동 생성(없을 때만, Phase 18 채널 강화) (2) `cover_letters/` 폴더명을 `<ID>_<회사명>_<직무명>`으로 변경 (3) 자소설닷컴 연동 최초 검토 — **이 시점엔 보류로 결론(같은 세션 안에서 Phase 23으로 뒤집힘, 아래 참고)** |
 | 23 | 자소설닷컴 연동 실제 구현(G15) — Phase 22의 "보류" 판단 중 하나(로그인 세션 필요)가 사용자 지적으로 오판임이 드러나 재검증 후 뒤집혔고, 신규 회사만 상세조회하는 방식으로 요청량 문제까지 해결해 `collect`의 세 번째 소스로 구현. 이용약관 위반 소지는 그대로 남아 사용자가 알고 진행 |
 | 24 | 자소설닷컴 연동 on/off 토글 — `.env`의 `JASOSEOL_ENABLED`(기본값 `true`)로 언제든 끌 수 있게 함. 이용약관 위반 리스크를 부담스러워하는 사용자를 위한 탈출구, 꺼도 사람인/원티드 수집엔 영향 없음. README도 이 시점 기준 실제 동작(폴더명 형식·설정 절)에 맞춰 최종 정리 |
+| 25 | 사람인 상세 이미지를 자소서 파이프라인에 반영(OQ5 해소) — `verify`가 이미 쓰던 `fetch_saramin_images()`를 `write`에도 연결해 `materials/`에 다운로드하고 planner(비전 지원 provider)에 전달. 사람인 공고도 원티드 수준으로 실제 상세 요건을 반영한 계획을 세울 수 있게 됨 |
 
 > 각 행의 상세 구현 목록·검증 방법·실측 결과는 `docs/history/PLAN_ARCHIVE.md`의 동일 Phase
 > 번호 섹션(Phase 17 이후는 이 문서에 직접) 참고.
@@ -248,6 +250,34 @@ A~Z 흐름, 문제 해결 표)에는 반영되지 않은 채 옛 `<ID>`/`<공고
 테스트 7개 추가(`tests/test_config.py` 5개 — `_parse_bool`/`JASOSEOL_ENABLED` 케이스,
 `tests/test_dedup.py` 2개 — on/off 시 `fetch_jasoseol_all` 호출 여부), 전체 스위트
 266→273개 전부 통과.
+
+### Phase 25 검증 기록
+
+OQ5(사람인 상세 이미지를 자소서 파이프라인에 반영)를 착수했다. `verify`가 이미
+`fetch_saramin_images()`로 사람인 상세 이미지 URL을 확보해 쓰고 있었는데(Phase 16),
+`write`(`orchestrator.run_for_job()`)는 이 함수를 전혀 쓰지 않아 사람인 공고는 목록
+페이지 태그만으로 계획을 세워야 했다. `_download_saramin_images(rec_idx, materials_dir)`를
+추가해 `[링크]`가 사람인 URL일 때 `materials/`에 `saramin_detail_<n>.<ext>`로 내려받고
+(이미 있으면 재다운로드 안 함), 기존 `_materials_images()` 스캔에 자연스럽게 합류시켰다 —
+"이미지는 planner에만 전달"하는 기존 §13-4 원칙을 그대로 따라 별도 배선이 필요 없었다.
+
+`ClaudeCliProvider`가 `images[0].parent` 하나만 `cwd`로 잡고 파일명만으로 Read를 지시하는
+구조라(`jobfind/providers/claude_cli.py`), 사용자 스크린샷과 사람인 다운로드 이미지가 같은
+`materials/` 폴더 안에 있어야 한다는 제약을 확인하고 그렇게 구현했다(하위 폴더 금지).
+
+**실제 provider(claude_cli) e2e 검증** (2026-08-18): 실제 `collect`로 사람인 공고를
+받아 이미지가 있는 공고(`saramin_54336598`, 월드크린 출고 전산업무)를 골라
+`COVER_LETTERS_DIR`만 임시 폴더로 바꿔 `orchestrator.run_for_job()`을 직접 호출했다(원본
+`output/`은 그대로 보존). 결과 `plan.md`에 목록 블록(`job_text`)에는 전혀 없던 정보 —
+상세 이미지에만 있는 우대사항 "구글 스프레드시트 사용 능숙자"·"인근 거주자", 전형절차의
+"수습 3개월" — 이 그대로 반영됨을 확인했다. `plan_evaluator`도 "우대사항(구글
+스프레드시트) 매칭"을 유지할 부분으로 짚어 평가 단계까지 이 정보가 일관되게 흘러갔음을
+확인했고, `plan_review`/`draft_review` 모두 `NEEDS_REVISION` → 재작성 루프가 정상
+동작했으며(Phase 17 설계대로) 각 평가가 구체적 근거를 든 실질적 피드백을 냈다
+(rubber-stamp 아님).
+
+테스트 3개 추가(`tests/test_orchestrator.py`) — 다운로드·전달, 사람인 URL 아닌 경우
+미호출, 멱등성(재다운로드 안 함) 각 1케이스. 전체 스위트 273→276개 전부 통과.
 
 ---
 

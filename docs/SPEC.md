@@ -1224,7 +1224,7 @@ Phase 20까지의 프롬프트는 "계획을 세워라"/"자연스럽게 써라"
 | 소스 | 방법 | 결과 |
 |---|---|---|
 | 원티드 | 상세 API의 `detail.intro/main_tasks/requirements/preferred_points/benefits` 필드를 그대로 가져와 라벨을 붙여 합침 (`fetch_wanted_description()`) | 실제 담당업무·자격요건이 반영됨 (검증 완료) |
-| 사람인 | (검토됨, 미채택) 정적 페이지 요청 + `BeautifulSoup.get_text()` | 본문이 자바스크립트로 렌더링돼 헤더/내비게이션 텍스트만 잡힘 — 노이즈만 추가하므로 **빈 문자열 반환으로 되돌림** (알려진 한계, PRD OQ5) |
+| 사람인 | (검토됨, 미채택) 정적 페이지 요청 + `BeautifulSoup.get_text()` | 본문이 자바스크립트로 렌더링돼 헤더/내비게이션 텍스트만 잡힘 — 노이즈만 추가하므로 **빈 문자열 반환으로 되돌림**. 텍스트는 못 가져와도 상세 이미지는 §13-4b에서 별도로 planner에 전달함(Phase 25, OQ5 해소) |
 
 ### 13-4. materials/ 이미지 및 `notes.md`
 
@@ -1293,6 +1293,39 @@ system 프롬프트에도 "`notes.md`에 실제 문항이 있으면 그 문항 �
 18초에 조회, 사용자의 `FILTER_KEYWORDS`(PM/PO/기획 등)로 걸러 6건이 최종 통과했고 그중
 `[직무] PM` 등 태그가 정상 반영됨을 확인했다. 자소설닷컴이 향후 이용 허가를 명시적으로
 제공하면 이 리스크 판단을 재검토할 수 있다.
+
+### 13-4b. 사람인 상세 이미지 자동 반영 (Phase 25, OQ5 해소)
+
+§13-3에서 `fetch_posting_text()`가 사람인 공고에는 빈 문자열만 반환한다고 기록했다 —
+본문이 텍스트가 아니라 이미지로 업로드돼 있기 때문이다(§10-3, `verify`가 이미 같은 문제를
+겪고 `fetch_saramin_images()`로 이미지 URL을 확보해 대응하고 있었다). `write` 파이프라인은
+Phase 24까지 이 이미지를 전혀 쓰지 않아, 사람인 공고는 목록 페이지 태그만으로 계획을
+세워야 했다.
+
+`run_for_job()`이 `[링크]`가 사람인 URL이면(`rec_idx=` 정규식 매칭) `_download_saramin_images()`
+로 상세 이미지를 `materials/`에 `saramin_detail_<n>.<ext>` 이름으로 내려받는다. 이미
+같은 이름의 파일이 있으면 다시 받지 않아(멱등) `write`를 여러 번 실행해도 매번 새로
+다운로드하지 않는다. 다운로드된 이미지는 `_materials_images()`가 사용자가 직접 넣어둔
+스크린샷과 동일하게 훑어 `images` 목록에 합류시키므로, §13-4의 "이미지는 planner에만
+전달" 원칙을 그대로 따른다 — 별도 배선이 필요 없었다.
+
+**claude_cli provider 제약**: `ClaudeCliProvider.run()`은 `cwd`를 `images[0].parent`
+하나로 고정하고 파일명만으로 Read 툴에 지시한다(`jobfind/providers/claude_cli.py`). 사용자
+스크린샷과 사람인 다운로드 이미지가 서로 다른 폴더에 있으면 이 가정이 깨지므로, 반드시
+같은 `materials/` 폴더 안에 내려받는다(하위 폴더 금지).
+
+**실제 provider(claude_cli) e2e 검증** (2026-08-18): `collect`로 받은 실제 사람인 공고
+(`saramin_54336598`, 이미지 1장)로 `COVER_LETTERS_DIR`만 임시 폴더로 바꿔
+`orchestrator.run_for_job()`을 직접 호출했다(원본 `output/`은 건드리지 않음). 결과 `plan.md`에
+이미지에만 있고 `job_text`(목록 블록)에는 없는 정보 — 우대사항 "구글 스프레드시트 사용
+능숙자"·"인근 거주자", 전형절차의 "수습 3개월" — 가 그대로 반영됐다. `plan_evaluator`도
+"우대사항(구글 스프레드시트) 매칭"을 유지할 부분으로 짚어, 평가 단계까지 이 정보가 텍스트로
+일관되게 흘러갔음을 확인했다. `plan_review`/`draft_review` 모두 `NEEDS_REVISION` → 재작성
+루프가 정상 동작했고(Phase 17 설계대로), 각 평가가 여전히 구체적 근거를 든 실질적 피드백을
+냈다(rubber-stamp 아님).
+
+테스트 3개 추가(`tests/test_orchestrator.py`) — 다운로드·전달, 사람인 URL 아닌 경우 미호출,
+멱등성(재다운로드 안 함) 각 1케이스. 전체 스위트 273→276개 전부 통과.
 
 ### 13-5. 기업 개황 보강 (`jobfind/dart.py`)
 
