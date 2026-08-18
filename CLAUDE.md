@@ -56,52 +56,8 @@
 
 ## Project Structure
 
-```
-/
-├── jobfind.py                  # 얇은 진입점 — jobfind.cli.main() 호출
-├── jobfind/
-│   ├── cli.py                   # argparse 서브커맨드: collect / evaluate / add / select / write
-│   ├── config.py                 # .env 로드 (필터/관련성/provider 설정 + API 키)
-│   ├── collectors/
-│   │   ├── saramin.py            # 사람인 목록 스크래핑 + 단건 상세 조회(og:description)
-│   │   └── wanted.py             # 원티드 목록/상세 API 호출
-│   ├── dedup.py                  # 플랫폼 간 중복 제거
-│   ├── filters.py                # .env 기반 1차 필터 (키워드/지역/경력유형/연차)
-│   ├── relevance.py              # HF 임베딩 기반 2차 필터 — 직무x도메인 랭킹, 상위 top_n만 유지
-│   ├── verification.py           # 상세 요건 최종검수 — AI로 목록 요약 vs 실제 요건 대조
-│   ├── bundle_detection.py       # 복수 직무 묶음(공채) 후보 감지 — 제목 패턴 기반
-│   ├── dart.py                   # DART 기업개황 조회 (상장기업만, API 키 있을 때만)
-│   ├── selection.py               # [자소서] 마커 스캔, materials/ 폴더 준비
-│   ├── storage.py                # jobs_all.txt/dismissed_ids.txt 읽기·쓰기, 블록 파싱, 마커 처리
-│   ├── providers/                # AI provider 추상화 (claude_cli/api)
-│   └── pipeline/                 # 자소서 오케스트레이션 (prompts.py, orchestrator.py,
-│                                  #   writing_strategy.py)
-├── profile.md                    # 사용자 이력/자기소개 자유 텍스트 (.gitignore 대상)
-├── profile.md.example            # profile.md 템플릿 (Git 포함)
-├── requirements.txt
-├── .env / .env.example           # 필터·관련성·provider 설정 + API 키 전부 여기 (.env는 Git 제외)
-├── .gitignore
-├── README.md
-├── CLAUDE.md
-├── output/                       # 실행 결과 저장 폴더 (전체 Git 제외)
-│   ├── jobs_all.txt
-│   ├── dismissed_ids.txt
-│   ├── archived_ids.txt           # [상태] 탈락 처리된 공고 ID 영구 기록
-│   ├── run_log.txt                # collect 실행 이력 누적 (소스 실패/페이지 상한 [경고])
-│   └── cover_letters/<공고ID>/  # plan.md, plan_review.md, draft.md, draft_review.md, materials/
-├── tests/
-└── docs/                         # 기획·설계 문서 (루트는 항상 최신 상태 요약본)
-    ├── PRD.md                     # 요구사항 (현재 목표/비목표/미결사항)
-    ├── SPEC.md                    # 기술 스펙 (현재 동작 방식)
-    ├── PLAN.md                    # 구현 전략 요약 + 미착수 Phase(5~7)
-    ├── PROGRESS.md                # Phase별 완료 현황 요약
-    ├── TEST_RESULT.md             # 최신 테스트 규모 요약
-    └── history/                   # 과거 세션 기록 전문(全文) 아카이브 — 최신 상태 파악엔 불필요
-        ├── PLAN_ARCHIVE.md         # Phase 1~15 상세 구현 로그
-        ├── SPEC_ARCHIVE.md         # SPEC 변경 이력 + 실측 비교 전문
-        ├── PROGRESS.md             # 세션별 상세 진행 기록
-        └── TEST_RESULT.md          # Phase 1 최초 실행 로그
-```
+프로젝트 구조는 `ls`/코드베이스를 직접 참고하세요 — 기능 단위로 분리돼 있습니다(수집/필터/
+관련성평가/저장/provider/파이프라인). 세부 파일 목적은 각 파일 상단 주석 참고.
 
 문서를 갱신할 때는 **루트 파일에는 "지금 어떤 상태인가"만 남기고, 시행착오·비교표·세션별
 서술 같은 과거 기록은 `docs/history/`로 옮긴다** — 루트 문서가 길어질수록 에이전트가 오래된
